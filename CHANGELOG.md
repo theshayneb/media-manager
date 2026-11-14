@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.203] - 2026-11-14
+
+- The dashboard finds the books and games your daily notes link in Related when the daily notes' format puts them in folders (like "YYYY/MM/YYYY-MM-DD"); before, those daily notes weren't read at all. The Related property's name now counts in any case.
+- When the Books or Games list is empty, it says why: no daily notes found where the settings say they are, or nothing linked in their Related property that month.
+
 ## [0.0.202] - 2026-11-13
 
 - A library's property rows in the settings all have the same layout: the property name in a box of the same width on every row, the source filling the middle, a slot for the tag name or fixed text (empty on rows that don't need one), then the switch and buttons lined up on the right.

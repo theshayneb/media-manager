@@ -58,11 +58,11 @@ export class DashCards {
     } else if (kind === 'book') {
       const books = withReacted(s.bookDays, s.books)
       this.metric(parent, 'Books', String(books.length), `${plural(daysWith(days, period, 'book'), 'day')} of reading`)
-      this.listCard(parent, 'Books', books, 'No books in your daily notes then.', embed)
+      this.listCard(parent, 'Books', books, this.noDailyNotes || `No books linked in your daily notes' ${this.related()} property then.`, embed)
     } else if (kind === 'game') {
       const games = withReacted(s.gameDays, s.games)
       this.metric(parent, 'Games', String(games.length), `${plural(daysWith(days, period, 'game'), 'day')} of playing`)
-      this.listCard(parent, 'Games', games, 'No games in your daily notes then.', embed)
+      this.listCard(parent, 'Games', games, this.noDailyNotes || `No games linked in your daily notes' ${this.related()} property then.`, embed)
     } else {
       this.metric(parent, 'Songs', plural(s.songPlays, 'play'))
       this.listCard(parent, 'Most played', [
@@ -158,10 +158,19 @@ export class DashCards {
     metric.createDiv({ cls: 'pmn-dash-metric-sub', text: sub ?? '\u00a0' })
   }
 
+  /** Why the books and games lists are empty when no daily note was found at all ('' when some were). */
+  private noDailyNotes = ''
+
+  private related(): string {
+    return this.plugin.settings.dailyRelated || 'Related'
+  }
+
   /** Every day your daily notes link a media note in Related (a day you watched, read or played it). */
   days(): DayLink[] {
     const notes = new Map(noteEntries(this.app, this.plugin.settings).map(n => [n.path, n]))
     const sync = new PlexSync(this.app, this.plugin.settings, () => this.plugin.saveSettings())
+    const { folder, format } = sync.dailyNotesWhere()
+    this.noDailyNotes = sync.dailyNoteFiles().length ? '' : `Found no daily notes${folder ? ` in “${folder}”` : ''} named like “${format}”: check the daily notes folder and format in settings.`
     return sync.relatedDays().flatMap(({ day, path }) => {
       const note = notes.get(path)
       return note ? [{ day, path, title: note.title, group: note.group }] : []

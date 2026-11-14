@@ -1319,22 +1319,43 @@ export class PlexSync {
    * (from the daily note's name, in the daily notes' format) and the note linked.
    */
   relatedDays(): { day: string, path: string }[] {
-    const name = this.settings.dailyRelated || 'Related'
-    const { folder, format } = this.dailyNotes()
-    const parse = moment as unknown as (input: string, format: string, strict: boolean) => { isValid(): boolean, format(f: string): string }
+    const name = (this.settings.dailyRelated || 'Related').toLowerCase()
     const out: { day: string, path: string }[] = []
-    for (const file of this.app.vault.getMarkdownFiles()) {
-      if (folder ? !file.path.startsWith(`${normalizePath(folder)}/`) : file.path.includes('/')) continue
-      const date = parse(file.basename, format, true)
-      if (!date.isValid()) continue
-      const day = date.format('YYYY-MM-DD')
+    for (const { file, day } of this.dailyNoteFiles()) {
       for (const link of this.app.metadataCache.getFileCache(file)?.frontmatterLinks ?? []) {
-        if (link.key !== name && !link.key.startsWith(`${name}.`)) continue
-        const target = this.app.metadataCache.getFirstLinkpathDest(link.link.split('#')[0], file.path)
+        // The property's name in any case ("related", "Related"); a list's items are "Related.0", "Related.1"…
+        const key = link.key.toLowerCase()
+        if (key !== name && !key.startsWith(`${name}.`)) continue
+        const target = this.app.metadataCache.getFirstLinkpathDest(link.link.split('#')[0].split('|')[0], file.path)
         if (target) out.push({ day, path: target.path })
       }
     }
     return out
+  }
+
+  /**
+   * Every daily note and its day: the note's path inside the daily notes folder (without ".md")
+   * read with the daily notes' format, so formats with folders in them ("YYYY/MM/YYYY-MM-DD") are
+   * read as they're written; else its name alone.
+   */
+  dailyNoteFiles(): { file: TFile, day: string }[] {
+    const { folder, format } = this.dailyNotes()
+    const parse = moment as unknown as (input: string, format: string, strict: boolean) => { isValid(): boolean, format(f: string): string }
+    const root = folder ? `${normalizePath(folder)}/` : ''
+    const out: { file: TFile, day: string }[] = []
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (root && !file.path.startsWith(root)) continue
+      const inside = file.path.slice(root.length).replace(/\.md$/i, '')
+      let date = parse(inside, format, true)
+      if (!date.isValid() && inside !== file.basename) date = parse(file.basename, format, true)
+      if (date.isValid()) out.push({ file, day: date.format('YYYY-MM-DD') })
+    }
+    return out
+  }
+
+  /** Where daily notes are looked for, to say so when none are found. */
+  dailyNotesWhere(): { folder: string, format: string } {
+    return this.dailyNotes()
   }
 
   /** How long movies and episodes are, in minutes, by rating key (asked of Plex a few at a time, kept while Obsidian runs). */

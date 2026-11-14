@@ -371,7 +371,7 @@ With **Watched episodes in daily notes** on, each sync, background update and **
 - **Not now** keeps them for later (so does closing it), and they're asked about again;
 - clicking beside the pop-up doesn't close it.
 
-Your books and games count on the dashboard by the days your daily notes' Related links them.
+Your books and games count on the dashboard by the days your daily notes' Related links them (daily notes in dated folders, like "YYYY/MM/YYYY-MM-DD", included). If the list is empty, it says whether it found your daily notes at all.
 
 **What isn't counted** (not in daily notes, the dashboard, or "Just finished"):
 - **Bedtime shows**: episodes of the listed shows (default Dilbert, Mission Hill, Futurama) watched between the set times (default 22:00–07:00). Watched at other times, they count as usual.
