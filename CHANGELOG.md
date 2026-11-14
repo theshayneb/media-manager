@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.204] - 2026-11-14
+
+- Song notes take in the "Obsidian Notes" Music Manager keeps in each music file:
+  - New song notes get it as their Notes, line breaks kept.
+  - Every sync, and the daily check-in, adds it to the end of an existing note's Notes, on a new line, when Notes doesn't already hold it. Nothing already in Notes is taken away or replaced, and an empty or missing tag leaves Notes alone.
+  - Notes are never offered for writing back to the file.
+  - The Music library gets a Notes row reading it (an empty fixed-text Notes row is turned into it).
+- FLAC files are read too: their `OBSIDIAN NOTES`, `OBSIDIAN TAGS`, genre and lyrics. They're never written to.
+- "What does this song's music file say?" also says what the file's Obsidian Notes hold and whether a sync would add them.
+
 ## [0.0.203] - 2026-11-14
 
 - The dashboard finds the books and games your daily notes link in Related when the daily notes' format puts them in folders (like "YYYY/MM/YYYY-MM-DD"); before, those daily notes weren't read at all. The Related property's name now counts in any case.

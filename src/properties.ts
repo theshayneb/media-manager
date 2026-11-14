@@ -1,5 +1,5 @@
 // Which Plex field fills which frontmatter property. No Obsidian imports, so it can be unit tested.
-import { fileTagList, isSongTagsRow, unionTags } from './song-tags'
+import { fileNotesText, fileTagList, isSongNotesRow, isSongTagsRow, unionTags } from './song-tags'
 import { tagValue } from './id3'
 import { genresOf, isDocumentaryGenre, isStarted, isWatched, trackArtist, yearOf, type MediaKind, type PlexItem, type PlexTag } from './notes'
 
@@ -146,6 +146,7 @@ export const DEFAULT_MUSIC_PROPERTIES: PropertyMapping[] = [
   { name: 'Link', source: 'plexLink', fill: true },
   { name: 'Image', source: 'poster' },
   { name: 'Progress', source: 'viewCount' },
+  { name: 'Notes', source: 'fileTag', text: 'Obsidian Notes' },
   { name: 'tags', source: 'typeTag' },
 ]
 
@@ -652,6 +653,13 @@ export function buildFrontmatter(item: PlexItem, mappings: PropertyMapping[], ct
     const songTags = isSongTagsRow({ name, source, text })
     // A song's tags from its file come with the library's type tag (song), even without a row of its own for it.
     const value = songTags ? unionTags(ctx.values.tag ? [ctx.values.tag] : [], fileTagList(sourceValue(source, item, ctx, text))) : sourceValue(source, item, ctx, text)
+    if (isSongNotesRow({ name, source, text })) {
+      // A song's notes from its music file: one text, line breaks kept; never over another row's value.
+      const notes = fileNotesText(value)
+      if (notes) fm[key] = typeof fm[key] === 'string' && fm[key] ? `${fm[key]}\n${notes}` : notes
+      else if (!(key in fm)) fm[key] = null
+      continue
+    }
     const empty = value === undefined || value === '' || (Array.isArray(value) && value.length === 0)
     // Two rows for one property (the type tag and the file's tags, both "tags") add up as one list.
     if (Array.isArray(fm[key]) && (Array.isArray(value) || empty || songTags)) {

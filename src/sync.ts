@@ -48,7 +48,7 @@ import { buildFrontmatter, DEFAULT_TAGS, playCount, CHECKED_SOURCES, HLTB_SOURCE
 import { SteamClient } from './steam'
 import { readSteamCollections } from './steam-local'
 import { lyricsOf, readFileTags, writeOwnTag } from './music-files'
-import { fileTagList, isSongTagsRow, songTagDiff, unionTags } from './song-tags'
+import { fileNotesText, fileTagList, isSongNotesRow, isSongTagsRow, songTagDiff, unionTags, withFileNotes } from './song-tags'
 import { userPlayCounts } from './lastfm'
 import { songKey, versionKey } from './lastfm-data'
 import { steamGridCovers, type CoverChoice } from './steamgriddb'
@@ -360,12 +360,14 @@ export class PlexSync {
    */
   private planFileWrites(file: TFile, item: PlexItem, lib: LibrarySetting, chosen: Set<string> | null): FileWrite[] {
     const path = item.Media?.[0]?.Part?.[0]?.file
-    if (lib.target !== 'music' || !path) return []
+    // Only MP3s' ID3 tags are ever written; FLAC files are only read.
+    if (lib.target !== 'music' || !path || /\.flac$/i.test(path)) return []
     const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}
     const writes: FileWrite[] = []
     for (const mapping of lib.properties) {
       const name = mapping.name.trim()
-      if (!name || (chosen && !chosen.has(name))) continue
+      // A song's notes only ever go from the file to the note (the note's are longer, with your own words).
+      if (!name || (chosen && !chosen.has(name)) || isSongNotesRow(mapping)) continue
       const value: unknown = frontmatter[name]
       if (typeof value !== 'string' && typeof value !== 'number' && !(Array.isArray(value) && isSongTagsRow(mapping))) continue
       let write: FileWrite | null = null
@@ -1413,6 +1415,12 @@ export class PlexSync {
     return fileTagList(item.fileTags?.[`TXXX:${name}`])
   }
 
+  /** A song's notes in its music file (Music Manager's "Obsidian Notes"), as one text. */
+  private fileNotes(item: PlexItem, m: PropertyMapping): string {
+    const name = (m.text ?? '').trim().replace(/^TXXX[/:]/i, '').toLowerCase()
+    return fileNotesText(item.fileTags?.[`TXXX:${name}`])
+  }
+
   /** Whether a note is a TV show's (tagged as the TV library's notes are, tv_show by default). */
   isShowNote(file: TFile): boolean {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}
@@ -1583,6 +1591,8 @@ export class PlexSync {
     if (!row) out.push(`✗ ${lib.title} has no "tags" row whose source is "Song: a tag in the music file, by name", so no tags are read from music files. Add one, named Obsidian Tags.`)
     else if (!row.text?.trim()) out.push(`✗ ${lib.title}'s tags row has the source "Song: a tag in the music file, by name" but no tag name in the box beside it. Type Obsidian Tags there.`)
     else out.push(`✓ ${lib.title}'s tags row reads the file's tag "${row.text.trim()}".`)
+    const notesRow = lib.properties.find(isSongNotesRow)
+    out.push(notesRow ? `✓ ${lib.title}'s ${notesRow.name.trim()} row reads the file's "Obsidian Notes".` : `✗ ${lib.title} has no row reading the file's "Obsidian Notes" (source "Song: a tag in the music file, by name", Obsidian Notes in the box beside it).`)
     if (!plexReady(this.settings)) return [...out, '✗ Plex isn\'t set up.']
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}
     const keys = [
@@ -1598,7 +1608,7 @@ export class PlexSync {
     if (!path) return [...out, '✗ Plex gives no file for this song.']
     out.push(`File, as Plex gives it: ${path}`)
     const tags = readFileTags(path)
-    if (!tags) return [...out, '✗ That file can\'t be read here: it isn\'t at that path on this computer (Plex may run elsewhere, or see the drive under another name), it isn\'t an MP3 with an ID3 tag, or this is a phone.']
+    if (!tags) return [...out, '✗ That file can\'t be read here: it isn\'t at that path on this computer (Plex may run elsewhere, or see the drive under another name), it isn\'t an MP3 with an ID3 tag or a FLAC file, or this is a phone.']
     out.push('✓ The file was read.')
     const own = Object.keys(tags).filter(k => k.startsWith('TXXX:')).map(k => k.slice(5))
     out.push(own.length ? `Its own tags: ${own.join(', ')}` : 'It has no tags of its own (TXXX).')
@@ -1612,6 +1622,12 @@ export class PlexSync {
         out.push(toNote.length ? `A sync would offer to add to this note: ${toNote.join(', ')}` : 'This note already has all of them.')
         if (toFile.length) out.push(`In this note but not the file (offered for the file): ${toFile.join(', ')}`)
       }
+    }
+    if (notesRow) {
+      const text = this.fileNotes({ fileTags: tags } as PlexItem, notesRow)
+      const name = notesRow.name.trim()
+      if (!text) out.push(`It has no "Obsidian Notes" (nothing to add to ${name}).`)
+      else out.push(`✓ "Obsidian Notes": ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`, withFileNotes(fm[name], text) === null ? `This note's ${name} already holds them.` : `A sync would add them to the end of this note's ${name}.`)
     }
     if ((this.settings.lockedProperties[file.path] ?? []).some(l => l.toLowerCase() === 'tags')) out.push('✗ You locked "tags" for this note ("never change"), so it\'s never offered. Undo under Settings → Remembered choices → Never changed.')
     // What a new note for this song would get from a sync, property by property.
@@ -2289,7 +2305,7 @@ export class PlexSync {
    */
   private planUpdates(file: TFile, item: PlexItem, lib: ActiveLibrary, sources: FieldSource[], skip: Set<string> = new Set()): { names: string[], from: Record<string, unknown>, to: Record<string, unknown> } | null {
     // A song's tags from its music file count too, whenever the file was read (never in the background).
-    const songTags = (m: PropertyMapping) => isSongTagsRow(m) && Boolean(item.fileTags)
+    const songTags = (m: PropertyMapping) => (isSongTagsRow(m) || isSongNotesRow(m)) && Boolean(item.fileTags)
     const mappings = lib.properties.filter(m => (sources.includes(m.source) || songTags(m)) && m.name.trim() && !skip.has(m.name.trim()))
     if (!mappings.length) return null
     const from = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}
@@ -2297,6 +2313,12 @@ export class PlexSync {
     const ctx = { kind: lib.target, link: '', image: null, values: lib.values }
     for (const m of mappings) {
       const name = m.name.trim()
+      if (songTags(m) && isSongNotesRow(m)) {
+        // The music file's notes are added to the end of the note's Notes, unless it already holds them.
+        const next = withFileNotes(to[name] ?? from[name], this.fileNotes(item, m))
+        if (next !== null) to[name] = next
+        continue
+      }
       if (songTags(m)) {
         // Tags in the music file that the note lacks are added; none are ever taken away.
         const { toNote } = songTagDiff(from[name], this.fileSongTags(item, m), this.typeTags())
@@ -2441,6 +2463,15 @@ export class PlexSync {
         to[name] = value
         if (statusMovesForward(current, value, lib.values) || byCollection) ticked.add(name)
         else yours.add(name)
+        continue
+      }
+      if (isSongNotesRow(m)) {
+        // The music file's notes, added to the end of the note's (never replacing them), ticked.
+        if (!item.fileTags) continue
+        const next = withFileNotes(to[name] ?? current, this.fileNotes(item, m))
+        if (next === null || kept(next)) continue
+        to[name] = next
+        ticked.add(name)
         continue
       }
       if (isSongTagsRow(m)) {

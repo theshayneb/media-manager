@@ -2,6 +2,7 @@
 import { DEFAULT_COLLECTION_RULES } from './collections'
 import { DEFAULT_FEELINGS, DEFAULT_REACTION_TAGS, DEFAULT_REACTION_THEMES, type FinishSeen } from './reactions'
 import { relatedKey } from './daily-episodes'
+import { isSongNotesRow } from './song-tags'
 import type { PickFilter } from './randomizer'
 import { defaultLibraryTarget, type LibraryTarget, type MatchBy, type MediaKind } from './notes'
 import {
@@ -641,6 +642,16 @@ export function loadSettings(data: unknown): PlexNotesSettings {
     // Square brackets have their own replacements now: round brackets.
     settings.fileNameReplacements['['] ??= '('
     settings.fileNameReplacements[']'] ??= ')'
+  })
+  migrateOnce(settings, saved, 'song-notes-from-files', () => {
+    // Asked for: a song's Notes takes in its music file's "Obsidian Notes" (Music Manager's).
+    for (const lib of Object.values(settings.libraries)) {
+      if (lib.target !== 'music' || lib.properties.some(isSongNotesRow)) continue
+      const notes = lib.properties.find(m => m.name.trim().toLowerCase() === 'notes')
+      // An empty fixed-text Notes row becomes the file's notes; otherwise a row of its own is added.
+      if (notes && notes.source === 'text' && !notes.text?.trim()) Object.assign(notes, { source: 'fileTag', text: 'Obsidian Notes' })
+      else lib.properties.push({ name: notes?.name.trim() || 'Notes', source: 'fileTag', text: 'Obsidian Notes' })
+    }
   })
   return settings
 }

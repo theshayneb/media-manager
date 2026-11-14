@@ -49,3 +49,33 @@ export function unionTags(a: unknown, b: unknown): string[] {
 export function isSongTagsRow(m: { name: string, source: string, text?: string }): boolean {
   return m.source === 'fileTag' && m.name.trim().toLowerCase() === 'tags' && Boolean(m.text?.trim())
 }
+
+/** Whether a property row is a song's notes from its music file (Music Manager's "Obsidian Notes" tag). */
+export function isSongNotesRow(m: { name: string, source: string, text?: string }): boolean {
+  return m.source === 'fileTag' && Boolean(m.name.trim()) && (m.text ?? '').trim().replace(/^TXXX[/:]/i, '').toLowerCase() === 'obsidian notes'
+}
+
+const plainLines = (text: string): string => text.replace(/\r\n?/g, '\n').split('\n').map(line => line.trimEnd()).join('\n').trim()
+
+/** A music file's notes as one text: its values on lines of their own, line endings made plain; '' for none. */
+export function fileNotesText(values: unknown): string {
+  const raw = Array.isArray(values) ? values.map(String) : typeof values === 'string' || typeof values === 'number' ? [String(values)] : []
+  return plainLines(raw.map(plainLines).filter(Boolean).join('\n'))
+}
+
+/**
+ * A note's Notes with the music file's text added at the end, on a new line, or null when there's
+ * nothing to add: the file has no text, or Notes already holds it (line endings and spaces at line
+ * ends aside). Nothing in Notes is ever taken away or changed. A list keeps being a list.
+ */
+export function withFileNotes(current: unknown, fileText: string): string | string[] | null {
+  const text = plainLines(fileText)
+  if (!text) return null
+  const asText = (v: unknown): string => typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : ''
+  const items = Array.isArray(current) ? current.map(asText) : [asText(current)].filter(Boolean)
+  const now = plainLines(items.join('\n'))
+  if (now.includes(text)) return null
+  if (Array.isArray(current)) return [...items, text]
+  const before = items.join('\n').replace(/\s+$/, '')
+  return before ? `${before}\n${text}` : text
+}

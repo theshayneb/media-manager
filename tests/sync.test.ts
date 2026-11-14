@@ -234,6 +234,7 @@ describe('PlexSync', () => {
       Link: 'https://app.plex.tv/desktop/#!/server/srv/details?key=%2Flibrary%2Fmetadata%2F90&track=100',
       Image: '[[Media/Music/Images/Radiohead - OK Computer.jpg]]',
       Progress: 0,
+      Notes: null,
       tags: ['music'],
     })
     expect(frontmatter.get('Media/Music/DJ X - Intro.md')).toMatchObject({ Artist: 'DJ X', Album: 'Mix', Genre: [], Image: null })
@@ -1354,6 +1355,28 @@ describe('PlexSync', () => {
     vi.mocked(readFileTags).mockReturnValue(null)
   })
 
+  it('adds a music file\'s Obsidian Notes to the end of its song note\'s Notes, never replacing or writing back', async () => {
+    const song = 'Media/Music/Radiohead - Karma Police.md'
+    vi.mocked(readFileTags).mockReturnValue({ 'TXXX:obsidian notes': ['Heard it first in 1997.\r\nStill gets me.'] })
+    const { app, frontmatter } = makeApp({ [song]: { Link: 'http://plex:32400/library/metadata/100', Notes: 'My own words.' } })
+    const settings = settingsWith({ askBeforeChanges: false })
+    settings.libraries = { 3: newLibrary('Music', 'artist', 'music') }
+    responses.set('/library/sections/3/all', { MediaContainer: { Metadata: [{ ...tracks[0], Media: [{ Part: [{ file: '/music/Karma Police.mp3' }] }] }] } })
+    await new PlexSync(app as never, settings, () => Promise.resolve()).run(() => {})
+    expect(frontmatter.get(song)!.Notes).toBe('My own words.\nHeard it first in 1997.\nStill gets me.')
+    // Already there: nothing added again, and nothing offered for the file.
+    const approve = vi.fn((r: ApprovalRequest): Promise<Decision> => Promise.resolve({ choice: 'apply', excluded: [] }))
+    await new PlexSync(app as never, { ...settings, askBeforeChanges: true }, () => Promise.resolve(), approve).run(() => {})
+    expect(approve.mock.calls.filter(c => c[0].path === song)).toEqual([])
+    expect(frontmatter.get(song)!.Notes).toBe('My own words.\nHeard it first in 1997.\nStill gets me.')
+    expect(writeOwnTag).not.toHaveBeenCalled()
+    // A file without notes leaves Notes alone.
+    vi.mocked(readFileTags).mockReturnValue({})
+    await new PlexSync(app as never, settings, () => Promise.resolve()).run(() => {})
+    expect(frontmatter.get(song)!.Notes).toBe('My own words.\nHeard it first in 1997.\nStill gets me.')
+    vi.mocked(readFileTags).mockReturnValue(null)
+  })
+
   it('compares the properties ticked for a library during a sync, and nothing in a quick sync', async () => {
     const note = 'Media/Movies/Arrival (2016).md'
     const { app, frontmatter } = makeApp({ [note]: { Link: 'http://plex:32400/library/metadata/1', Summary: 'Mine.' } })
@@ -2028,7 +2051,7 @@ describe('PlexSync', () => {
       },
     }
     const once = loadSettings(saved)
-    expect(once.libraries['3'].properties.map(p => p.name)).toEqual(['Artist', 'Progress'])
+    expect(once.libraries['3'].properties.map(p => p.name)).toEqual(['Artist', 'Progress', 'Notes'])
     expect(once.libraries.books.properties).toEqual([{ name: 'Author', source: 'authors' }, { name: 'Duration', source: 'pages' }])
     // Put back by hand afterwards: left alone.
     const again = loadSettings({ ...saved, migrations: once.migrations })
@@ -2442,7 +2465,7 @@ describe('PlexSync', () => {
     const { retarget } = await import('../src/config')
     retarget(settings.libraries['3'], 'music')
     expect(settings.libraries['3']).toMatchObject({ folder: 'Media/Music', fileNameFormat: '{{artist}} - {{title}}', values: { tag: 'music' } })
-    expect(settings.libraries['3'].properties.map(p => p.name)).toEqual(['Artist', 'Album', 'Track', 'Genre', 'Date', 'Link', 'Image', 'Progress', 'tags'])
+    expect(settings.libraries['3'].properties.map(p => p.name)).toEqual(['Artist', 'Album', 'Track', 'Genre', 'Date', 'Link', 'Image', 'Progress', 'Notes', 'tags'])
   })
 
   it('moves settings from older versions into each library', () => {

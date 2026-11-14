@@ -1,5 +1,6 @@
 import { Platform } from 'obsidian'
 import { id3Size, readId3, setOwnTag, tagValue, type FileTags } from './id3'
+import { flacBlock, isFlac, readVorbisComments } from './flac'
 
 interface NodeFs {
   existsSync(path: string): boolean
@@ -35,6 +36,7 @@ export function readFileTags(path: string): FileTags | null {
     fd = fs.openSync(path, 'r')
     const header = new Uint8Array(10)
     if (fs.readSync(fd, header, 0, 10, 0) < 10) return null
+    if (isFlac(header)) return readFlacTags(fs, fd)
     const size = Math.min(id3Size(header), MAX_TAG)
     if (!size) return null
     const tag = new Uint8Array(size)
@@ -46,6 +48,25 @@ export function readFileTags(path: string): FileTags | null {
   } finally {
     if (fd !== null) fs.closeSync(fd)
   }
+}
+
+/** A FLAC file's Vorbis comments (only its metadata blocks are read, never the music). */
+function readFlacTags(fs: NodeFs, fd: number): FileTags | null {
+  let at = 4
+  const header = new Uint8Array(4)
+  for (let i = 0; i < 64; i++) {
+    if (fs.readSync(fd, header, 0, 4, at) < 4) return null
+    const block = flacBlock(header)
+    at += 4
+    if (block.type === 4) {
+      const data = new Uint8Array(Math.min(block.size, MAX_TAG))
+      fs.readSync(fd, data, 0, data.length, at)
+      return readVorbisComments(data)
+    }
+    if (block.last) return null
+    at += block.size
+  }
+  return null
 }
 
 /**
