@@ -535,6 +535,16 @@ export class PlexNotesSettingTab extends PluginSettingTab {
         }))
     new Setting(containerEl)
       .setClass('pmn-indent')
+      .setName('Books you read')
+      .setDesc('Also offer the books you read for that property: a book counts when its page count in the book reader goes up while it\'s open on this device. Reading that goes past midnight counts for the day you started.')
+      .addToggle(toggle => toggle
+        .setValue(settings.relatedBooks)
+        .onChange(async value => {
+          settings.relatedBooks = value
+          await this.save()
+        }))
+    new Setting(containerEl)
+      .setClass('pmn-indent')
       .setName('Daily notes folder and date format')
       .setDesc('Leave empty to use the settings of Obsidian\'s daily notes plugin. The format is the file name\'s, such as "YYYY-MM-DD".')
       .addText(text => text

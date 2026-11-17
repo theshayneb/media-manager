@@ -1547,6 +1547,34 @@ export class PlexSync {
     this.settings.relatedPending.push({ path, ...offer })
   }
 
+  /** Whether a note is a book note (in a Books library's folder) that nothing told the plugin to skip. */
+  isBookNote(file: TFile): boolean {
+    const folders = Object.values(this.settings.libraries).filter(lib => lib.target === 'book').map(lib => normalizePath(lib.folder))
+    return folders.some(f => file.path.startsWith(`${f}/`))
+      && !(`book:${file.path}` in this.settings.ignored) && !this.settings.unmatchedIgnored.includes(file.path)
+  }
+
+  /**
+   * A book read in a sitting that started at `start` (seconds), offered for the Related property of
+   * that day's daily note, unless it's there, waiting already or turned down. 'missing' when the
+   * daily note doesn't exist (yet): never created, so the caller tries again later.
+   */
+  async offerBookRead(note: TFile, start: number): Promise<'offered' | 'missing' | 'skipped'> {
+    const related = this.settings.dailyRelated
+    if (!related || !this.settings.relatedBooks || !this.isBookNote(note)) return 'skipped'
+    const { folder, format } = this.dailyNotes()
+    const path = normalizePath(`${folder ? `${folder}/` : ''}${moment.unix(start).format(format)}.md`)
+    const daily = this.app.vault.getAbstractFileByPath(path)
+    if (!(daily instanceof TFile)) return 'missing'
+    const has: unknown = this.app.metadataCache.getFileCache(daily)?.frontmatter?.[related]
+    const link = `[[${this.app.metadataCache.fileToLinktext(note, path, true)}]]`
+    const before = this.settings.relatedPending.length
+    this.offerRelated(path, has, this.relatedSame(path), { link, title: note.basename, kind: 'book', viewedAt: start })
+    if (this.settings.relatedPending.length === before) return 'skipped'
+    await this.saveSettings()
+    return 'offered'
+  }
+
   /**
    * Steam games played since the last look (their playtime went up), offered for the Related property
    * of the day Steam says each was last played. A game whose daily note isn't there yet is looked at

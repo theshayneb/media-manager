@@ -26,6 +26,7 @@ import { planCollections, planSignature, sendCollections } from './plex-collecti
 import { parseCollectionRules } from './collections'
 import { CollectionsModal } from './collections-modal'
 import { minutesOf } from './daily-episodes'
+import { BookReadingWatcher } from './reading-watch'
 import { checkInStep, endCheckIn, startCheckIn } from './check-in-steps'
 
 /** Where each device keeps its own copy of your answers (`mergeAnswers`). */
@@ -63,6 +64,17 @@ export default class PlexMediaNotesPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings()
+
+    // Books read here (their page count going up in the book reader) offered for daily notes' Related.
+    const reading = new BookReadingWatcher(this.app, () => new PlexSync(this.app, this.settings, () => this.saveSettings()))
+    this.app.workspace.onLayoutReady(() => {
+      reading.layoutChanged()
+      void reading.retry()
+      this.registerEvent(this.app.workspace.on('layout-change', () => reading.layoutChanged()))
+      this.registerEvent(this.app.metadataCache.on('changed', (file, _data, cache) => void reading.changed(file, cache)))
+      this.registerEvent(this.app.vault.on('create', () => void reading.retry()))
+    })
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => reading.renamed(file.path, oldPath)))
 
     // Notes chosen with "Use an existing note" stay tied to their item when renamed or moved.
     // So do notes you chose to always ignore when they match nothing.
@@ -714,7 +726,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
    */
   async reloadSettings(): Promise<void> {
     if (this.plexSyncRunning) return
-    const before: KeptAnswers = { relatedDeclined: [...this.settings.relatedDeclined], reactionsDone: { ...this.settings.reactionsDone } }
+    const before: KeptAnswers = { relatedDeclined: [...this.settings.relatedDeclined], reactionsDone: { ...this.settings.reactionsDone }, relatedPending: this.settings.relatedPending.map(o => ({ ...o })) }
     Object.assign(this.settings, loadSettings(await this.loadData()))
     // Answers given here are kept even when another device's older copy comes in through Sync
     // (a "no" to a Related link, a reaction to something finished), and written back so the
@@ -731,7 +743,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings)
     try {
-      const kept: KeptAnswers = { relatedDeclined: this.settings.relatedDeclined, reactionsDone: this.settings.reactionsDone }
+      const kept: KeptAnswers = { relatedDeclined: this.settings.relatedDeclined, reactionsDone: this.settings.reactionsDone, relatedPending: this.settings.relatedPending }
       this.app.saveLocalStorage(ANSWERS_BACKUP, kept)
     } catch {
       // Only a backup.

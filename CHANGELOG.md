@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.205] - 2026-11-17
+
+- Books you read are offered for your daily notes' Related property, like shows, movies and games:
+  - A book counts when the page in its note's Progress (saved by the book reader) goes up while the book is open in the reader on that device. Paging back, or opening the book without turning a page, doesn't count.
+  - Pages turned less than 30 minutes apart are one sitting, and a sitting counts for the day it started: reading from 11pm to 12:03am goes in the first day's note.
+  - Each device counts only its own reading. Pages read on another device and brought in by Sync aren't counted again.
+  - Books wait in the same "Add to your daily notes?" pop-up, marked "Book reader", and are never added without your tick. A daily note that doesn't exist yet is never made; the book is offered once it's there (for up to a week).
+  - Switch it off with "Books you read" under the daily notes settings.
+- Offers waiting in that pop-up are no longer lost when another device's older copy of the settings syncs in: each device keeps its own copy and adds it back.
+
 ## [0.0.204] - 2026-11-14
 
 - Song notes take in the "Obsidian Notes" Music Manager keeps in each music file:

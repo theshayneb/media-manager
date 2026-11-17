@@ -22,7 +22,7 @@ export class RelatedModal extends Modal {
     this.containerEl.addClass('pmn-related-container')
     const { contentEl } = this
     renderCheckInSteps(contentEl)
-    contentEl.createDiv({ cls: 'pmn-review-hint', text: `What Plex and Steam say you watched or played, for each day's ${this.pmnProperty} property. Unticked ones aren't offered again for that day (nor are any, with "None of these"); "Not now" asks again later.` })
+    contentEl.createDiv({ cls: 'pmn-review-hint', text: `What Plex, Steam and your book reader say you watched, played or read, for each day's ${this.pmnProperty} property. Unticked ones aren't offered again for that day (nor are any, with "None of these"); "Not now" asks again later.` })
     const ticked = new Set(this.pmnOffers)
     const scroll = contentEl.createDiv('pmn-review-scroll')
     const days = new Map<string, RelatedOffer[]>()
@@ -37,7 +37,7 @@ export class RelatedModal extends Modal {
       const name = path.split('/').pop()?.replace(/\.md$/, '') ?? path
       const head = scroll.createDiv('pmn-review-section')
       head.createEl('h3', { text: moment.unix(offers[0].viewedAt).format('dddd D MMMM') })
-      const sources = [...new Set(offers.map(o => o.kind === 'game' ? 'Steam' : 'Plex'))].join(' and ')
+      const sources = [...new Set(offers.map(sourceOf))].join(' and ')
       const flow = head.createSpan('pmn-review-flow')
       flow.createSpan({ cls: 'pmn-review-pill', text: sources })
       flow.createSpan({ cls: 'pmn-review-arrow', text: '→' })
@@ -53,8 +53,8 @@ export class RelatedModal extends Modal {
           counted()
         })
         row.createEl('strong', { text: offer.title })
-        const what = offer.kind === 'show' ? 'TV show' : offer.kind === 'game' ? 'Game, last played' : 'Movie'
-        row.createSpan({ cls: 'pmn-add-detail', text: `${what} · ${moment.unix(offer.viewedAt).format('HH:mm')} · ${offer.kind === 'game' ? 'Steam' : 'Plex'}` })
+        const what = offer.kind === 'show' ? 'TV show' : offer.kind === 'game' ? 'Game, last played' : offer.kind === 'book' ? 'Book, started reading' : 'Movie'
+        row.createSpan({ cls: 'pmn-add-detail', text: `${what} · ${moment.unix(offer.viewedAt).format('HH:mm')} · ${sourceOf(offer)}` })
       }
     }
     const foot = contentEl.createDiv('pmn-review-foot')
@@ -78,4 +78,9 @@ export class RelatedModal extends Modal {
     this.contentEl.empty()
     if (!this.pmnAnswered) this.pmnDone('closed')
   }
+}
+
+/** Where an offer was seen: Plex's history, Steam, or the book reader's page count. */
+function sourceOf(offer: RelatedOffer): string {
+  return offer.kind === 'game' ? 'Steam' : offer.kind === 'book' ? 'Book reader' : 'Plex'
 }

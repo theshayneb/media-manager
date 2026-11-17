@@ -17,4 +17,18 @@ describe('mergeAnswers', () => {
     expect(mergeAnswers(settings, { relatedDeclined: ['Daily/2026-10-30.md|movie'] })).toBe(false)
     expect(mergeAnswers(settings, null)).toBe(false)
   })
+
+  it('keeps offers waiting on another device, unless refused', () => {
+    const settings = defaultSettings()
+    settings.relatedDeclined = ['Daily/2026-11-02.md|book b']
+    settings.relatedPending = [{ path: 'Daily/2026-11-01.md', link: '[[Movie]]', title: 'Movie', kind: 'movie', viewedAt: 1 }]
+    const other = [
+      { path: 'Daily/2026-11-01.md', link: '[[Movie]]', title: 'Movie', kind: 'movie' as const, viewedAt: 1 },
+      { path: 'Daily/2026-11-01.md', link: '[[Book A]]', title: 'Book A', kind: 'book' as const, viewedAt: 2 },
+      { path: 'Daily/2026-11-02.md', link: '[[Book B]]', title: 'Book B', kind: 'book' as const, viewedAt: 3 },
+    ]
+    expect(mergeAnswers(settings, { relatedPending: other })).toBe(true)
+    expect(settings.relatedPending.map(o => o.title)).toEqual(['Movie', 'Book A'])
+    expect(mergeAnswers(settings, { relatedPending: other })).toBe(false)
+  })
 })

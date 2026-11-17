@@ -23,8 +23,8 @@ export interface RelatedOffer {
   /** The link to add, "[[Lost (2004)]]". */
   link: string
   title: string
-  kind: 'show' | 'movie' | 'game'
-  /** When it was (first) watched that day, seconds since 1970. */
+  kind: 'show' | 'movie' | 'game' | 'book'
+  /** When it was (first) watched that day (for a book, when the sitting started), seconds since 1970. */
   viewedAt: number
 }
 
@@ -101,6 +101,8 @@ export interface PlexNotesSettings {
   dailyQuote: string
   /** The daily note property every movie and show watched that day is linked in (empty: none). */
   dailyRelated: string
+  /** Books read on this device (their note's Progress going up while open in the book reader) offered for Related too. */
+  relatedBooks: boolean
   /** Shows whose episodes watched between these times aren't counted anywhere (someone else's bedtime viewing). */
   bedtimeShows: string[]
   bedtimeFrom: string
@@ -286,6 +288,7 @@ export function defaultSettings(): PlexNotesSettings {
     dailyAnchor: '[!writing] Journaling',
     dailyQuote: '> >',
     dailyRelated: 'Related',
+    relatedBooks: true,
     bedtimeShows: ['Dilbert', 'Mission Hill', 'Futurama'],
     bedtimeFrom: '22:00',
     bedtimeTo: '07:00',
@@ -448,7 +451,7 @@ type SavedLibrary = Partial<LibrarySetting> & { title?: string, type?: string, t
 export function loadSettings(data: unknown): PlexNotesSettings {
   const saved = (data ?? {}) as Partial<PlexNotesSettings> & LegacySettings & { libraries?: Record<string, SavedLibrary> }
   const settings = defaultSettings()
-  for (const key of ['serverUrl', 'token', 'imagesSubfolder', 'renameExistingNotes', 'askBeforeChanges', 'omdbKey', 'googleBooksKey', 'lastfmKey', 'lastfmUser', 'listenbrainzUser', 'revisitWeekly', 'lastRevisit', 'collectionsProperty', 'collectionRules', 'lastAutoCollections', 'dailyEpisodes', 'dailyAnchor', 'dailyQuote', 'dailyRelated', 'reactionsProperty', 'feelingsProperty', 'themesProperty', 'reactionInbox', 'reactToEpisodes', 'whyProperty', 'bedtimeFrom', 'bedtimeTo', 'dailyFolder', 'dailyFormat', 'dailyEpisodesSince',
+  for (const key of ['serverUrl', 'token', 'imagesSubfolder', 'renameExistingNotes', 'askBeforeChanges', 'omdbKey', 'googleBooksKey', 'lastfmKey', 'lastfmUser', 'listenbrainzUser', 'revisitWeekly', 'lastRevisit', 'collectionsProperty', 'collectionRules', 'lastAutoCollections', 'dailyEpisodes', 'dailyAnchor', 'dailyQuote', 'dailyRelated', 'relatedBooks', 'reactionsProperty', 'feelingsProperty', 'themesProperty', 'reactionInbox', 'reactToEpisodes', 'whyProperty', 'bedtimeFrom', 'bedtimeTo', 'dailyFolder', 'dailyFormat', 'dailyEpisodesSince',
     'updatePlayCounts', 'updateRatings', 'updateStatus', 'sendRatings', 'allRatingsInStars', 'tickDifferences', 'playCountHours', 'lastPlayCountUpdate', 'checkInAt', 'lastCheckIn'] as const) {
     if (saved[key] !== undefined) (settings as unknown as Record<string, unknown>)[key] = saved[key]
   }
@@ -481,7 +484,7 @@ export function loadSettings(data: unknown): PlexNotesSettings {
   if (Array.isArray(saved.relatedDeclined)) settings.relatedDeclined = saved.relatedDeclined.map(String)
   if (Array.isArray(saved.relatedPending)) {
     settings.relatedPending = (saved.relatedPending as Partial<RelatedOffer>[]).filter(o => o && typeof o.path === 'string' && typeof o.link === 'string')
-      .map(o => ({ path: String(o.path), link: String(o.link), title: String(o.title ?? o.link), kind: o.kind === 'movie' || o.kind === 'game' ? o.kind : 'show', viewedAt: Number(o.viewedAt) || 0 }))
+      .map(o => ({ path: String(o.path), link: String(o.link), title: String(o.title ?? o.link), kind: o.kind === 'movie' || o.kind === 'game' || o.kind === 'book' ? o.kind : 'show', viewedAt: Number(o.viewedAt) || 0 }))
   }
   if (saved.randomizer && typeof saved.randomizer === 'object') {
     const r = saved.randomizer as { kind?: unknown, filters?: unknown }
@@ -668,16 +671,21 @@ function migrateOnce(settings: PlexNotesSettings, saved: { migrations?: unknown 
   settings.migrations.push(name)
 }
 
-/** Your answers that must never be lost to an older copy of the settings: Related "no"s and finishings answered. */
+/**
+ * What must never be lost to an older copy of the settings: Related "no"s, finishings answered,
+ * and Related offers still waiting for an answer (a book read on one device is only seen there).
+ */
 export interface KeptAnswers {
   relatedDeclined: string[]
   reactionsDone: Record<string, number>
+  relatedPending?: RelatedOffer[]
 }
 
 /**
  * Adds `other`'s answers to the settings' (each once; neither list can be undone by hand, so a
  * union never brings back anything taken out on purpose), dropping waiting Related offers now
- * refused. Whether anything was added.
+ * refused. `other`'s waiting offers join the settings' (an answered one is either refused, so left
+ * out here, or already in its daily note, which `relatedOffers` drops). Whether anything was added.
  */
 export function mergeAnswers(settings: PlexNotesSettings, other: Partial<KeptAnswers> | null | undefined): boolean {
   let added = false
@@ -696,6 +704,15 @@ export function mergeAnswers(settings: PlexNotesSettings, other: Partial<KeptAns
       settings.reactionsDone[key] = at
       added = true
     }
+  }
+  const waiting = new Set(settings.relatedPending.map(o => relatedKey(o.path, o.link)))
+  for (const offer of Array.isArray(other?.relatedPending) ? other.relatedPending : []) {
+    if (!offer || typeof offer.path !== 'string' || typeof offer.link !== 'string') continue
+    const key = relatedKey(offer.path, offer.link)
+    if (waiting.has(key) || declined.has(key)) continue
+    waiting.add(key)
+    settings.relatedPending.push({ ...offer })
+    added = true
   }
   const pending = settings.relatedPending.filter(o => !declined.has(relatedKey(o.path, o.link)))
   if (pending.length !== settings.relatedPending.length) settings.relatedPending = pending
