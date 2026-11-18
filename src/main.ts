@@ -27,7 +27,7 @@ import { parseCollectionRules } from './collections'
 import { CollectionsModal } from './collections-modal'
 import { minutesOf } from './daily-episodes'
 import { BookReadingWatcher } from './reading-watch'
-import { mergeSettings, snapshot, stampChanges } from './settings-merge'
+import { describeSettings, isSettingsData, mergeSettings, snapshot, stampChanges } from './settings-merge'
 import { checkInStep, endCheckIn, startCheckIn } from './check-in-steps'
 
 /** Where each device keeps its own copy of your answers (`mergeAnswers`). */
@@ -306,6 +306,11 @@ export default class PlexMediaNotesPlugin extends Plugin {
       ctx.addChild(new EmbeddedCard(el, this, source))
     })
     this.addRibbonIcon('sparkles', 'Open media dashboard', () => void this.openRecommendations())
+    this.addCommand({
+      id: 'restore-settings',
+      name: 'Restore settings from a backup…',
+      callback: () => void this.restoreSettings(),
+    })
     this.addCommand({
       id: 'open-recommendations',
       name: 'Open media dashboard',
@@ -776,9 +781,12 @@ export default class PlexMediaNotesPlugin extends Plugin {
   private lastWritten = 0
 
   async loadSettings(): Promise<void> {
-    const disk = loadSettings(await this.loadData())
+    const data: unknown = await this.loadData()
     const backup = this.pmnBackup(SETTINGS_BACKUP)
-    if (backup && typeof backup === 'object' && 'syncStamps' in backup) {
+    // A file Sync left empty for a moment is no settings at all: this device's own copy is used.
+    const disk = loadSettings(isSettingsData(data) ? data : isSettingsData(backup) ? backup : data)
+    if (isSettingsData(data)) await this.backUpFile(data, 'loaded')
+    if (isSettingsData(backup) && 'syncStamps' in (backup as object)) {
       // This device's own copy, merged with what's on disk: what this device did since is kept even
       // if Sync wrote another device's older copy over the file while Obsidian was closed.
       this.settings = loadSettings(mergeSettings(loadSettings(backup), disk, Date.now()))
@@ -789,7 +797,98 @@ export default class PlexMediaNotesPlugin extends Plugin {
     }
     this.settingsBefore = snapshot(this.settings)
     this.lastWritten = await this.settingsTime()
-    if (JSON.stringify(this.settings) !== JSON.stringify(disk)) await this.writeSettings()
+    // This device's own copy, kept from the start (not only from its first save).
+    if (isSettingsData(this.settings)) {
+      try {
+        this.app.saveLocalStorage(SETTINGS_BACKUP, this.settings)
+      } catch {
+        // Only a backup.
+      }
+    }
+    if (isSettingsData(data) && JSON.stringify(this.settings) !== JSON.stringify(disk)) await this.writeSettings()
+  }
+
+  /** Where dated copies of the settings are kept, in the plugin's folder (`settings-YYYY-MM-DD.json`). */
+  private backupFolder(): string {
+    return normalizePath(`${this.manifest.dir}/backups`)
+  }
+
+  /**
+   * Keeps a copy of real settings (never an empty one) as today's backup file, the first of the day
+   * as it was loaded, then the latest save; the newest 14 days are kept.
+   */
+  private async backUpFile(data: unknown, why: 'loaded' | 'saved'): Promise<void> {
+    if (!isSettingsData(data)) return
+    try {
+      const adapter = this.app.vault.adapter
+      const folder = this.backupFolder()
+      if (!await adapter.exists(folder)) await adapter.mkdir(folder)
+      const day = moment.unix(Math.floor(Date.now() / 1000)).format('YYYY-MM-DD')
+      // The day's first copy, as loaded, is kept apart: it's from before anything this session did.
+      const path = `${folder}/settings-${day}${why === 'loaded' ? '-start' : ''}.json`
+      if (why === 'loaded' && await adapter.exists(path)) return
+      await adapter.write(path, JSON.stringify(data, null, 2))
+      const files = (await adapter.list(folder)).files.filter(f => /settings-\d{4}-\d{2}-\d{2}(-start)?\.json$/.test(f)).sort()
+      for (const old of files.slice(0, Math.max(0, files.length - 28))) await adapter.remove(old)
+    } catch (err) {
+      console.warn('Media Manager: backing up the settings failed', err)
+    }
+  }
+
+  /**
+   * "Restore settings from a backup…": the dated backup files on this device, newest first, and any
+   * settings file (a data.json copied from another device, say) put anywhere in the vault. The one
+   * picked is taken over the current settings (entries only the current ones have are kept), and
+   * stamped as changed now, so it wins on every device.
+   */
+  async restoreSettings(): Promise<void> {
+    const adapter = this.app.vault.adapter
+    const choices: { label: string, path: string, data: unknown }[] = []
+    try {
+      const folder = this.backupFolder()
+      if (await adapter.exists(folder)) {
+        for (const path of (await adapter.list(folder)).files.sort().reverse()) {
+          try {
+            const data: unknown = JSON.parse(await adapter.read(path))
+            if (isSettingsData(data)) choices.push({ label: `Backup ${path.split('/').pop()!.replace(/^settings-|\.json$/g, '').replace('-start', ', as Obsidian started')}: ${describeSettings(data)}`, path, data })
+          } catch {
+            // Not readable: left out.
+          }
+        }
+      }
+    } catch {
+      // No backups yet.
+    }
+    for (const file of this.app.vault.getFiles().filter(f => f.extension === 'json')) {
+      try {
+        const data: unknown = JSON.parse(await this.app.vault.read(file))
+        if (isSettingsData(data) && typeof (data as Record<string, unknown>).libraries === 'object') choices.push({ label: `${file.path}: ${describeSettings(data)}`, path: file.path, data })
+      } catch {
+        // Not settings.
+      }
+    }
+    if (!choices.length) {
+      new Notice(`No settings backup found. Copy another device's data.json (in ${this.app.vault.configDir}/plugins/plex-media-notes) anywhere into the vault and try again.`, 15000)
+      return
+    }
+    new RestoreModal(this.app, choices, async picked => {
+      await this.oneAtATime(async () => {
+        this.stampOwnChanges()
+        await this.backUpFile(this.settings, 'saved')
+        // The backup's values win (unless empty); entries only the current settings have are kept.
+        // Stamps are left out of this merge, so nothing removed or changed since gets in the way.
+        const unstamped = (from: PlexNotesSettings) => ({ ...from, syncStamps: { set: {}, removed: {} } })
+        const kept = loadSettings(mergeSettings(unstamped(loadSettings(picked.data)), unstamped(this.settings), Date.now()))
+        kept.syncStamps = this.settings.syncStamps
+        // Stamped as changed now, against blank settings: every value and entry wins on every device.
+        stampChanges(loadSettings({}), kept, kept.syncStamps, Date.now())
+        Object.assign(this.settings, kept)
+        this.settingsBefore = snapshot(this.settings)
+        await this.saveData(this.settings)
+        this.lastWritten = await this.settingsTime()
+      })
+      new Notice(`Settings restored from ${picked.path}. Close and reopen the settings to see them.`, 10000)
+    }).open()
   }
 
   /** This device's own copy (kept in Obsidian's local storage, not synced). */
@@ -824,7 +923,10 @@ export default class PlexMediaNotesPlugin extends Plugin {
    */
   private async mergeDisk(): Promise<boolean> {
     this.stampOwnChanges()
-    const disk = loadSettings(await this.loadData())
+    const data: unknown = await this.loadData()
+    // Empty or missing (Sync writing another copy): nothing to merge, and this device's is written back.
+    if (!isSettingsData(data)) return isSettingsData(this.settings)
+    const disk = loadSettings(data)
     const merged = loadSettings(mergeSettings(this.settings, disk, Date.now()))
     for (const key of Object.keys(this.settings)) if (!(key in merged)) delete (this.settings as unknown as Record<string, unknown>)[key]
     Object.assign(this.settings, merged)
@@ -867,6 +969,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
 
   private async writeSettings(): Promise<void> {
     await this.saveData(this.settings)
+    await this.backUpFile(this.settings, 'saved')
     this.lastWritten = await this.settingsTime()
     this.settingsBefore = snapshot(this.settings)
     try {
@@ -1129,6 +1232,30 @@ class ReportModal extends Modal {
   onOpen(): void {
     this.titleEl.setText(this.pmnTitle)
     for (const line of this.pmnLines) this.contentEl.createEl('p', { cls: line.startsWith('✗') ? 'pmn-report-bad' : 'pmn-report-line', text: line })
+  }
+
+  onClose(): void {
+    this.contentEl.empty()
+  }
+}
+
+/** "Restore settings from a backup…": the backups found, newest first, each with what it holds. */
+class RestoreModal extends Modal {
+  constructor(app: App, private readonly pmnChoices: { label: string, path: string, data: unknown }[], private readonly pmnPick: (choice: { label: string, path: string, data: unknown }) => Promise<void>) {
+    super(app)
+  }
+
+  onOpen(): void {
+    const { contentEl } = this
+    this.setTitle('Restore settings')
+    contentEl.createEl('p', { text: 'Pick the copy to bring back. Its server, keys, libraries and remembered choices replace the current ones (anything only the current settings have is kept), on every device.' })
+    for (const choice of this.pmnChoices) {
+      const button = contentEl.createEl('button', { cls: 'pmn-restore-choice', text: choice.label })
+      button.addEventListener('click', () => {
+        this.close()
+        void this.pmnPick(choice)
+      })
+    }
   }
 
   onClose(): void {

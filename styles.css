@@ -1571,3 +1571,14 @@
     display: none;
   }
 }
+
+/* "Restore settings from a backup…": one button per copy found. */
+.pmn-restore-choice {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  text-align: left;
+  white-space: normal;
+}

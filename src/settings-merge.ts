@@ -6,8 +6,10 @@
 // the time in `syncStamps.set`, every entry removed on purpose the time in `syncStamps.removed`.
 // `mergeSettings` then takes, per setting and per entry, the newest: a removal newer than the
 // entry's last change stays removed; an entry only one copy has is kept (a stale copy lacking it
-// can't drop it). With no stamps on either side (not changed since 0.0.207), the other copy's
-// value is taken for an ordinary setting, and both are kept for map entries.
+// can't drop it). With no stamps on either side (not changed since 0.0.207), an ordinary setting
+// keeps this copy's value unless it's empty and the other's isn't (0.0.207 took the other copy's,
+// which let an empty file Sync was writing wipe the server, keys and libraries), and both copies'
+// map entries are kept.
 
 import type { PlexNotesSettings, RelatedOffer } from './config'
 import { relatedKey } from './daily-episodes'
@@ -54,6 +56,35 @@ function entriesOf(key: string, value: unknown): Entries {
     return Object.fromEntries((Array.isArray(value) ? value as RelatedOffer[] : []).map(o => [keyOf(o), o]))
   }
   return {}
+}
+
+/** An empty value: nothing, '', [] or {}. */
+function isEmpty(value: unknown): boolean {
+  if (value === null || value === undefined || value === '') return true
+  if (Array.isArray(value)) return !value.length
+  return typeof value === 'object' && !Object.keys(value).length
+}
+
+/**
+ * Whether saved data really is a settings file: Obsidian Sync can leave the file empty or missing
+ * for a moment while it writes another device's copy, and that must never be read as "everything
+ * was cleared".
+ */
+export function isSettingsData(data: unknown): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false
+  const saved = data as Record<string, unknown>
+  return ['serverUrl', 'libraries', 'migrations', 'syncStamps'].some(key => !isEmpty(saved[key]))
+}
+
+/** A short description of a settings copy, to tell backups apart. */
+export function describeSettings(data: unknown): string {
+  const saved = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+  const count = (key: string) => {
+    const value = saved[key]
+    return Array.isArray(value) ? value.length : value && typeof value === 'object' ? Object.keys(value).length : 0
+  }
+  const remembered = ['ignored', 'merged', 'keptValues', 'keptLinks', 'lockedProperties', 'unmatchedIgnored', 'notInterested'].reduce((n, key) => n + count(key), 0)
+  return `${saved.serverUrl ? 'Plex server set' : 'no Plex server'}, ${count('libraries')} libraries, ${remembered} remembered choices`
 }
 
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b)
@@ -130,7 +161,12 @@ export function mergeSettings(local: Settings, remote: Settings, now: number): S
     if (kind === 'plain') {
       const lt = ls?.set[key] ?? 0
       const rt = rs?.set[key] ?? 0
-      out[key] = !(key in r) || (key in l && lt > rt) ? l[key] : r[key]
+      if (!(key in r)) out[key] = l[key]
+      else if (!(key in l)) out[key] = r[key]
+      // Changed since stamps began: the later change.
+      else if (lt || rt) out[key] = lt >= rt ? l[key] : r[key]
+      // Never changed since: an empty value never replaces a filled one; otherwise this copy's.
+      else out[key] = isEmpty(l[key]) && !isEmpty(r[key]) ? r[key] : l[key]
       continue
     }
     const le = entriesOf(key, l[key])

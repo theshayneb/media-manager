@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.208] - 2026-11-18
+
+- Fixed: 0.0.207 could wipe your Plex server, token, API keys, libraries and remembered choices. While Obsidian Sync writes the settings file, it can be empty or missing for a moment; 0.0.207 read that as the other device's settings, took its empty values over yours, and spread them to your other devices. Now:
+  - An empty or missing settings file is never read as settings. This device's own copy is used and written back.
+  - An empty value never replaces a filled one, unless you emptied it yourself.
+  - A setting no device has changed since 0.0.207 keeps each device's own value, instead of taking the incoming one.
+- New command "Restore settings from a backup…". It lists the dated backups on this device and any settings file you put in the vault, such as another device's data.json, with what each holds. The one you pick replaces the current server, keys, libraries and remembered choices on every device, keeping anything only the current settings have.
+- Each device now keeps dated backup files of the settings (two weeks of them, in the plugin's backups folder): the first copy each day as Obsidian started, and the latest save. Empty settings are never backed up.
+
 ## [0.0.207] - 2026-11-18
 
 - New setting "Run background tasks on this device" (Syncing), set separately on each device: on for computers and off for phones and tablets to begin with. Background updates, the daily check-in, the weekly automatic collections and the Revisit playlist only start on their own where it's on, so a phone or tablet back after days offline no longer finds everything due. Syncs, "Check in now" and other commands still work everywhere when you start them.

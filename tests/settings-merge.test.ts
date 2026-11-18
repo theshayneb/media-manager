@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultSettings, loadSettings, mergeAnswers, type PlexNotesSettings } from '../src/config'
-import { mergeSettings, snapshot, stampChanges, STAMPS_KEPT } from '../src/settings-merge'
+import { isSettingsData, mergeSettings, snapshot, stampChanges, STAMPS_KEPT } from '../src/settings-merge'
 
 const DAY = 86400 * 1000
 const T0 = Date.UTC(2026, 10, 1)
@@ -74,7 +74,7 @@ describe('mergeSettings', () => {
     expect(Object.keys(merge(undone, caughtUp.save(T0 + 2 * DAY)).ignored)).toEqual(['9'])
   })
 
-  it('takes the most recently changed ordinary setting, else the other copy\'s', () => {
+  it('takes the most recently changed ordinary setting, else keeps its own', () => {
     const desktop = device()
     const phone = device()
     phone.settings.checkInAt = '21:00'
@@ -85,11 +85,12 @@ describe('mergeSettings', () => {
       expect(merged.checkInAt).toBe('21:00')
       expect(merged.dailyRelated).toBe('Linked')
     }
-    // Never changed since stamps began, and different: the other copy's (the one Sync brought) is taken.
+    // Never changed since stamps began, and different: each copy keeps its own (nothing is lost).
     const a = loadSettings({})
     const b = loadSettings({})
     b.bedtimeFrom = '23:00'
-    expect(merge(a, b).bedtimeFrom).toBe('23:00')
+    expect(merge(a, b).bedtimeFrom).toBe(a.bedtimeFrom)
+    expect(merge(b, a).bedtimeFrom).toBe('23:00')
   })
 
   it('never brings back a Related offer answered on another device', () => {
@@ -125,5 +126,26 @@ describe('mergeSettings', () => {
     const stamps = { set: {}, removed: {} }
     expect(stampChanges(snapshot(settings), settings, stamps, T0)).toBe(false)
     expect(stamps).toEqual({ set: {}, removed: {} })
+  })
+
+  it('never lets an empty value or an empty file replace filled settings (0.0.207 lost the server and libraries)', () => {
+    const mine = loadSettings({})
+    mine.serverUrl = 'http://plex'
+    mine.token = 'tok'
+    mine.omdbKey = 'key'
+    const blank = loadSettings({})
+    for (const merged of [merge(mine, blank), merge(blank, mine)]) {
+      expect(merged.serverUrl).toBe('http://plex')
+      expect(merged.token).toBe('tok')
+      expect(merged.omdbKey).toBe('key')
+    }
+    expect(isSettingsData(null)).toBe(false)
+    expect(isSettingsData({})).toBe(false)
+    expect(isSettingsData({ serverUrl: '' })).toBe(false)
+    expect(isSettingsData(mine)).toBe(true)
+    // Cleared on purpose (stamped): that stays.
+    const cleared = device(mine)
+    cleared.settings.omdbKey = ''
+    expect(merge(mine, cleared.save(T0 + DAY)).omdbKey).toBe('')
   })
 })
