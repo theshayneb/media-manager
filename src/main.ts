@@ -1,4 +1,4 @@
-import { App, Modal, moment, normalizePath, Notice, Plugin, TFile } from 'obsidian'
+import { App, Modal, moment, normalizePath, Notice, Platform, Plugin, TFile } from 'obsidian'
 import { EmbeddedCard } from './embed-cards'
 import { EMBED_LANGUAGE } from './embed-spec'
 import { AddModal } from './add-modal'
@@ -27,10 +27,15 @@ import { parseCollectionRules } from './collections'
 import { CollectionsModal } from './collections-modal'
 import { minutesOf } from './daily-episodes'
 import { BookReadingWatcher } from './reading-watch'
+import { mergeSettings, snapshot, stampChanges } from './settings-merge'
 import { checkInStep, endCheckIn, startCheckIn } from './check-in-steps'
 
 /** Where each device keeps its own copy of your answers (`mergeAnswers`). */
 const ANSWERS_BACKUP = 'pmn-kept-answers'
+/** Since 0.0.207, the whole settings, with their stamps, so a copy Sync wrote over them is merged, not taken. */
+const SETTINGS_BACKUP = 'pmn-settings-backup'
+/** Whether this device runs background tasks ('on' or 'off'; unset: on for computers, off for phones and tablets). */
+const BACKGROUND_HERE = 'pmn-background-here'
 
 /**
  * The progress message in the corner during a sync or check. It comes back if it was closed (a
@@ -348,6 +353,9 @@ export default class PlexMediaNotesPlugin extends Plugin {
    */
   async updatePlayCountsIfDue(): Promise<void> {
     if (this.plexSyncRunning || this.checkingIn) return
+    // Only the devices meant to (the desktop that's always open): a phone or tablet back after days
+    // offline would find everything due.
+    if (!this.backgroundHere()) return
     if (!this.syncSettled()) {
       // Looked at again in a minute, rather than waiting for the next 10-minute look.
       window.clearTimeout(this.settleTimer)
@@ -743,35 +751,104 @@ export default class PlexMediaNotesPlugin extends Plugin {
     this.syncs.clear()
   }
 
-  async loadSettings(): Promise<void> {
-    this.settings = loadSettings(await this.loadData())
-    // Answers this device remembers that an older copy from another device left out go back in.
-    if (mergeAnswers(this.settings, this.pmnAnswersBackup())) await this.saveSettings()
+  /** Whether this device runs background updates and the daily check-in (set per device, not synced). */
+  backgroundHere(): boolean {
+    try {
+      const value: unknown = this.app.loadLocalStorage(BACKGROUND_HERE)
+      if (value === 'on' || value === 'off') return value === 'on'
+    } catch {
+      // Not known: the device's default.
+    }
+    return !Platform.isMobile
   }
 
-  /** This device's own copy of your answers (kept in Obsidian's local storage, not synced). */
-  private pmnAnswersBackup(): Partial<KeptAnswers> | null {
+  setBackgroundHere(on: boolean): void {
     try {
-      return this.app.loadLocalStorage(ANSWERS_BACKUP) as Partial<KeptAnswers> | null
+      this.app.saveLocalStorage(BACKGROUND_HERE, on ? 'on' : 'off')
+    } catch {
+      new Notice('Couldn\'t remember this on this device')
+    }
+  }
+
+  /** The settings as last saved or merged here, to tell what this device changed since (`stampChanges`). */
+  private settingsBefore: PlexNotesSettings | null = null
+  /** The settings file's time when this device last wrote it: a different one means Sync brought another copy. */
+  private lastWritten = 0
+
+  async loadSettings(): Promise<void> {
+    const disk = loadSettings(await this.loadData())
+    const backup = this.pmnBackup(SETTINGS_BACKUP)
+    if (backup && typeof backup === 'object' && 'syncStamps' in backup) {
+      // This device's own copy, merged with what's on disk: what this device did since is kept even
+      // if Sync wrote another device's older copy over the file while Obsidian was closed.
+      this.settings = loadSettings(mergeSettings(loadSettings(backup), disk, Date.now()))
+    } else {
+      this.settings = disk
+      // Before 0.0.207 only the answers were backed up.
+      mergeAnswers(this.settings, this.pmnBackup(ANSWERS_BACKUP) as Partial<KeptAnswers> | null)
+    }
+    this.settingsBefore = snapshot(this.settings)
+    this.lastWritten = await this.settingsTime()
+    if (JSON.stringify(this.settings) !== JSON.stringify(disk)) await this.writeSettings()
+  }
+
+  /** This device's own copy (kept in Obsidian's local storage, not synced). */
+  private pmnBackup(key: string): unknown {
+    try {
+      return this.app.loadLocalStorage(key) as unknown
     } catch {
       return null
     }
   }
 
+  private async settingsTime(): Promise<number> {
+    try {
+      return (await this.app.vault.adapter.stat(normalizePath(`${this.manifest.dir}/data.json`)))?.mtime ?? 0
+    } catch {
+      return 0
+    }
+  }
+
+  /** Notes what this device changed since the last save or merge, with the time (`syncStamps`). */
+  private stampOwnChanges(): void {
+    if (!this.settingsBefore) return
+    stampChanges(this.settingsBefore, this.settings, this.settings.syncStamps, Date.now())
+    this.settingsBefore = snapshot(this.settings)
+  }
+
   /**
-   * Reads the saved settings again into the same object (so the settings page and anything holding
-   * it see them), for when Obsidian Sync brings another device's changes. Not while a sync or check
-   * runs: it saves its own copy as it goes.
+   * Merges what's on disk (another device's copy, through Sync) into these settings, entry by entry
+   * (`mergeSettings`): the newest of each, nothing dropped because an older copy lacks it. Into the
+   * same object, so the settings page and anything holding it see it. Whether the disk copy differs
+   * from the result (so it's to be written back).
    */
-  async reloadSettings(): Promise<void> {
-    if (this.plexSyncRunning) return
-    const before: KeptAnswers = { relatedDeclined: [...this.settings.relatedDeclined], reactionsDone: { ...this.settings.reactionsDone }, relatedPending: this.settings.relatedPending.map(o => ({ ...o })) }
-    Object.assign(this.settings, loadSettings(await this.loadData()))
-    // Answers given here are kept even when another device's older copy comes in through Sync
-    // (a "no" to a Related link, a reaction to something finished), and written back so the
-    // other devices get them too.
-    const added = mergeAnswers(this.settings, before)
-    if (mergeAnswers(this.settings, this.pmnAnswersBackup()) || added) await this.saveSettings()
+  private async mergeDisk(): Promise<boolean> {
+    this.stampOwnChanges()
+    const disk = loadSettings(await this.loadData())
+    const merged = loadSettings(mergeSettings(this.settings, disk, Date.now()))
+    for (const key of Object.keys(this.settings)) if (!(key in merged)) delete (this.settings as unknown as Record<string, unknown>)[key]
+    Object.assign(this.settings, merged)
+    this.settingsBefore = snapshot(this.settings)
+    return JSON.stringify(merged) !== JSON.stringify(disk)
+  }
+
+  /**
+   * Reads the saved settings again and merges them in, for when Obsidian Sync brings another
+   * device's changes (also while a sync runs: nothing is lost either way), and writes the result back
+   * when this device had something the other copy lacked, so the other devices get it too.
+   */
+  reloadSettings(): Promise<void> {
+    return this.oneAtATime(async () => {
+      if (await this.mergeDisk()) await this.writeSettings()
+    })
+  }
+
+  /** Saves and merges run one after another (some saves aren't waited for), so none reads a half-written state. */
+  private settingsQueue: Promise<void> = Promise.resolve()
+  private oneAtATime(task: () => Promise<void>): Promise<void> {
+    const next = this.settingsQueue.then(task, task)
+    this.settingsQueue = next.catch(err => console.error('Media Manager: saving settings failed', err))
+    return next
   }
 
   /** Obsidian calls this when the settings file changes on disk, say through Obsidian Sync. */
@@ -779,13 +856,30 @@ export default class PlexMediaNotesPlugin extends Plugin {
     await this.reloadSettings()
   }
 
-  async saveSettings(): Promise<void> {
+  /** Saves the settings, first merging in what Sync brought since this device last wrote them. */
+  saveSettings(): Promise<void> {
+    return this.oneAtATime(async () => {
+      this.stampOwnChanges()
+      if (await this.settingsTime() !== this.lastWritten) await this.mergeDisk()
+      await this.writeSettings()
+    })
+  }
+
+  private async writeSettings(): Promise<void> {
     await this.saveData(this.settings)
+    this.lastWritten = await this.settingsTime()
+    this.settingsBefore = snapshot(this.settings)
     try {
-      const kept: KeptAnswers = { relatedDeclined: this.settings.relatedDeclined, reactionsDone: this.settings.reactionsDone, relatedPending: this.settings.relatedPending }
-      this.app.saveLocalStorage(ANSWERS_BACKUP, kept)
+      this.app.saveLocalStorage(SETTINGS_BACKUP, this.settings)
     } catch {
-      // Only a backup.
+      // Too big for local storage: keep the answers at least, as before 0.0.207.
+      try {
+        const kept: KeptAnswers = { relatedDeclined: this.settings.relatedDeclined, reactionsDone: this.settings.reactionsDone, relatedPending: this.settings.relatedPending }
+        this.app.saveLocalStorage(SETTINGS_BACKUP, null)
+        this.app.saveLocalStorage(ANSWERS_BACKUP, kept)
+      } catch {
+        // Only a backup.
+      }
     }
   }
 

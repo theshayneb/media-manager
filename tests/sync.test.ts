@@ -92,6 +92,7 @@ function makeApp(existing: Record<string, Record<string, unknown>>) {
       createFolder: (p: string) => { files.set(p, new TFolder(p)); return Promise.resolve() },
       create: (p: string) => { const f = new TFile(p); files.set(p, f); frontmatter.set(p, {}); return Promise.resolve(f) },
       createBinary: (p: string) => { files.set(p, new TFile(p)); binaries.push(p); return Promise.resolve() },
+      cachedRead: (f: { path: string }) => Promise.resolve(texts.get(f.path) ?? ''),
       process: (f: { path: string }, fn: (text: string) => string) => {
         texts.set(f.path, fn(texts.get(f.path) ?? ''))
         return Promise.resolve(texts.get(f.path))
@@ -1731,9 +1732,13 @@ describe('PlexSync', () => {
       '> >- ▶️ [[Lost]]: S01E01 – Pilot',
       '> > Mine.']
     expect(texts.get(daily)!.split('\n')).toEqual(expected)
-    // Again: nothing new.
+    // Again: nothing new, and the note isn't even written (a no-op write would still go out through Sync).
     settings.dailyEpisodesSince = at - 3600
+    const writes = vi.spyOn(app.vault, 'process')
     expect(await new PlexSync(app as never, settings, () => Promise.resolve()).writeDailyEpisodes()).toEqual([])
+    expect(await new PlexSync(app as never, settings, () => Promise.resolve()).writeDailyEpisodes(true)).toEqual([])
+    expect(writes).not.toHaveBeenCalled()
+    writes.mockRestore()
     expect(texts.get(daily)!.split('\n')).toEqual(expected)
     // Deleted by hand: a sync doesn't bring it back, the command (the whole week) does.
     texts.set(daily, ['# Saturday', '> [!note] Today', '> >[!writing] Journaling', '> >', '> > Mine.'].join('\n'))
@@ -1780,11 +1785,17 @@ describe('PlexSync', () => {
     expect(await sync.addRelated(offers, [])).toEqual([daily])
     expect(frontmatter.get(daily)!.Related).toEqual(['[[Mom]]', '[[Lost (2004)]]', '[[Arrival (2016)]]'])
     expect(sync.relatedOffers()).toEqual([])
+    // Answered again (from another device's pop-up, say) with the link already there: the note isn't touched.
+    const frontmatterWrites = vi.spyOn(app.fileManager, 'processFrontMatter')
+    expect(await sync.addRelated(offers, [])).toEqual([])
+    expect(frontmatterWrites).not.toHaveBeenCalled()
+    frontmatterWrites.mockRestore()
     // Said no to: not offered again.
     frontmatter.get(daily)!.Related = ['[[Mom]]']
     await sync.writeDailyEpisodes(true)
     const again = sync.relatedOffers()
-    expect(again.map(o => o.link)).toEqual(['[[Lost (2004)]]', '[[Arrival (2016)]]'])
+    // Arrival was answered (added) before, so taking it out by hand doesn't bring the offer back.
+    expect(again.map(o => o.link)).toEqual(['[[Lost (2004)]]'])
     await sync.addRelated([], again)
     expect(frontmatter.get(daily)!.Related).toEqual(['[[Mom]]'])
     await sync.writeDailyEpisodes(true)

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.207] - 2026-11-18
+
+- New setting "Run background tasks on this device" (Syncing), set separately on each device: on for computers and off for phones and tablets to begin with. Background updates, the daily check-in, the weekly automatic collections and the Revisit playlist only start on their own where it's on, so a phone or tablet back after days offline no longer finds everything due. Syncs, "Check in now" and other commands still work everywhere when you start them.
+- Your devices' settings are now merged instead of overwriting each other:
+  - Each device notes when it changed or removed each setting and each remembered entry (ratings Plex and a note last agreed on, ratings in the star scale, values and links you kept, locks, skipped items, notes tied with "Use an existing note", Related answers, reactions answered, and the rest).
+  - When another device's copy comes in through Sync, the newest of each is kept. An entry only one copy has is never dropped because an older copy lacks it, and something you removed (say, undone under Remembered choices) stays removed.
+  - Ordinary settings work the same way: the most recent change wins, wherever it was made.
+  - This also happens while a sync is running (before, a copy arriving then was ignored and then saved over) and before every save.
+  - Each device also keeps its own copy, so changes it made aren't lost if Sync writes over the file while Obsidian is closed.
+- A Related offer you answered, yes or no, is never offered again, even when another device still had it waiting, or you took the link out of the daily note by hand.
+- A daily note is no longer rewritten when there's no new episode line for it, nor when a Related link you said yes to is already there, so nothing goes out through Sync for nothing.
+
 ## [0.0.206] - 2026-11-18
 
 - The daily check-in shows a notice in the top-right corner while it works ("Daily check-in: looking at Plex and Steam…", then your choices and daily notes), and says when it's done. If it can't reach Plex or Steam, it says so and tries again in an hour.

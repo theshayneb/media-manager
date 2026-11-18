@@ -691,6 +691,15 @@ export class PlexNotesSettingTab extends PluginSettingTab {
         })
     }
     new Setting(containerEl)
+      .setName('Run background tasks on this device')
+      .setDesc('Background updates, the daily check-in and the weekly automatic collections and playlist only start on their own on devices where this is on. It\'s set for each device (on for computers, off for phones and tablets to begin with), so one device that\'s always open can do it for all. Syncs and commands you start yourself work everywhere.')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.backgroundHere())
+        .onChange(value => {
+          this.plugin.setBackgroundHere(value)
+          if (value) void this.plugin.updatePlayCountsIfDue()
+        }))
+    new Setting(containerEl)
       .setName('Daily check-in')
       .setDesc('A 24-hour time, such as 19:00. Background updates then ask you nothing; everything waiting for your yes (play counts and playtimes to approve, links for your daily notes\' Related, what you finished) is asked once a day, from this time on, one pop-up after another. The command "Check in now" asks straight away. Leave it empty to be asked at every background update.')
       .addText(text => text

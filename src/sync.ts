@@ -1511,7 +1511,10 @@ export class PlexSync {
       const entries = list.map((eps, i) => episodeEntry(showLinks[i], eps))
       let found = true
       let added = 0
-      if (entries.length) {
+      // Only written when something is added (a day looked at again changes nothing).
+      const preview = entries.length ? insertEntries(await this.app.vault.cachedRead(file), this.settings.dailyAnchor, entries, this.settings.dailyQuote) : null
+      if (preview) found = preview.found
+      if (preview?.added) {
         await this.app.vault.process(file, text => {
           const result = insertEntries(text, this.settings.dailyAnchor, entries, this.settings.dailyQuote)
           found = result.found
@@ -1549,7 +1552,7 @@ export class PlexSync {
   /** Lines up a link for a daily note's Related property, unless it's there, waiting already, or turned down. */
   private offerRelated(path: string, has: unknown, same: (entry: string, link: string) => boolean, offer: Omit<RelatedOffer, 'path'>): void {
     const key = relatedKey(path, offer.link)
-    if (this.settings.relatedDeclined.includes(key) || this.settings.relatedPending.some(p => relatedKey(p.path, p.link) === key)) return
+    if (this.settings.relatedDeclined.includes(key) || key in this.settings.relatedAnswered || this.settings.relatedPending.some(p => relatedKey(p.path, p.link) === key)) return
     if (!withRelated(has, [offer.link], same)) return
     this.settings.relatedPending.push({ path, ...offer })
   }
@@ -1777,7 +1780,7 @@ export class PlexSync {
     const related = this.settings.dailyRelated
     const keep = this.settings.relatedPending.filter(offer => {
       const file = this.app.vault.getAbstractFileByPath(offer.path)
-      if (!related || !(file instanceof TFile)) return false
+      if (!related || !(file instanceof TFile) || relatedKey(offer.path, offer.link) in this.settings.relatedAnswered) return false
       const has: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter?.[related]
       return withRelated(has, [offer.link], this.relatedSame(offer.path)) !== null
     })
@@ -1795,6 +1798,8 @@ export class PlexSync {
       const file = this.app.vault.getAbstractFileByPath(path)
       if (!related || !(file instanceof TFile)) continue
       const same = this.relatedSame(path)
+      // Already there (added on another device, say): the note isn't touched.
+      if (!withRelated(this.app.metadataCache.getFileCache(file)?.frontmatter?.[related], links, same)) continue
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
         const next = withRelated(fm[related], links, same)
         if (next) {
@@ -1805,6 +1810,10 @@ export class PlexSync {
     }
     const answered = new Set([...yes, ...no].map(o => relatedKey(o.path, o.link)))
     this.settings.relatedPending = this.settings.relatedPending.filter(o => !answered.has(relatedKey(o.path, o.link)))
+    // Answered either way, never offered again (nor brought back by another device's older copy).
+    const now = Date.now()
+    for (const [key, at] of Object.entries(this.settings.relatedAnswered)) if (now - at > RELATED_ANSWERED_KEPT) delete this.settings.relatedAnswered[key]
+    for (const key of answered) this.settings.relatedAnswered[key] = now
     this.settings.relatedDeclined = [...this.settings.relatedDeclined, ...no.map(o => relatedKey(o.path, o.link)).filter(k => !this.settings.relatedDeclined.includes(k))].slice(-1000)
     await this.saveSettings()
     return changed
@@ -2989,3 +2998,6 @@ function keptEntry(entry: string): { kept: string, offered: string } | null {
 function mtimeOf(file: TFile): number {
   return (file.stat as TFile['stat'] | undefined)?.mtime ?? 0
 }
+
+/** How long answered Related offers are remembered (they're only ever offered for the last week). */
+const RELATED_ANSWERED_KEPT = 60 * 86400 * 1000

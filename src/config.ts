@@ -4,6 +4,7 @@ import { DEFAULT_FEELINGS, DEFAULT_REACTION_TAGS, DEFAULT_REACTION_THEMES, type 
 import { relatedKey } from './daily-episodes'
 import { isSongNotesRow } from './song-tags'
 import type { PickFilter } from './randomizer'
+import type { SyncStamps } from './settings-merge'
 import { defaultLibraryTarget, type LibraryTarget, type MatchBy, type MediaKind } from './notes'
 import {
   DEFAULT_TAGS,
@@ -141,6 +142,10 @@ export interface PlexNotesSettings {
   gameFinishSeen: Record<string, FinishSeen> | null
   /** Related links you said no to (`relatedKey`: daily note path and link target), not offered again. */
   relatedDeclined: string[]
+  /** Related offers you answered, yes or no (`relatedKey` → when), never offered again (kept 60 days). */
+  relatedAnswered: Record<string, number>
+  /** When each setting and remembered entry was last changed or removed, for merging copies from other devices (`settings-merge.ts`). */
+  syncStamps: SyncStamps
   /** Last.fm API key, for music suggestions from outside your library on the recommendations page. */
   lastfmKey: string
   /** Your Last.fm username: songs' play counts there are offered beside Plex's. */
@@ -310,6 +315,8 @@ export function defaultSettings(): PlexNotesSettings {
     dailyEpisodesSince: 0,
     relatedPending: [],
     relatedDeclined: [],
+    relatedAnswered: {},
+    syncStamps: { set: {}, removed: {} },
     gamePlaytimes: null,
     gameFinishSeen: null,
     imagesSubfolder: 'Images',
@@ -482,6 +489,10 @@ export function loadSettings(data: unknown): PlexNotesSettings {
   }
   if (saved.gamePlaytimes && typeof saved.gamePlaytimes === 'object') settings.gamePlaytimes = Object.fromEntries(Object.entries(saved.gamePlaytimes as Record<string, unknown>).filter(([, v]) => typeof v === 'number').map(([k, v]) => [k, v as number]))
   if (Array.isArray(saved.relatedDeclined)) settings.relatedDeclined = saved.relatedDeclined.map(String)
+  if (saved.relatedAnswered && typeof saved.relatedAnswered === 'object') settings.relatedAnswered = Object.fromEntries(Object.entries(saved.relatedAnswered as Record<string, unknown>).filter(([, v]) => typeof v === 'number').map(([k, v]) => [k, v as number]))
+  const stamps = saved.syncStamps as Partial<SyncStamps> | undefined
+  const times = (from: unknown) => from && typeof from === 'object' ? Object.fromEntries(Object.entries(from as Record<string, unknown>).filter(([, v]) => typeof v === 'number')) as Record<string, number> : {}
+  settings.syncStamps = { set: times(stamps?.set), removed: times(stamps?.removed) }
   if (Array.isArray(saved.relatedPending)) {
     settings.relatedPending = (saved.relatedPending as Partial<RelatedOffer>[]).filter(o => o && typeof o.path === 'string' && typeof o.link === 'string')
       .map(o => ({ path: String(o.path), link: String(o.link), title: String(o.title ?? o.link), kind: o.kind === 'movie' || o.kind === 'game' || o.kind === 'book' ? o.kind : 'show', viewedAt: Number(o.viewedAt) || 0 }))
@@ -709,12 +720,12 @@ export function mergeAnswers(settings: PlexNotesSettings, other: Partial<KeptAns
   for (const offer of Array.isArray(other?.relatedPending) ? other.relatedPending : []) {
     if (!offer || typeof offer.path !== 'string' || typeof offer.link !== 'string') continue
     const key = relatedKey(offer.path, offer.link)
-    if (waiting.has(key) || declined.has(key)) continue
+    if (waiting.has(key) || declined.has(key) || key in settings.relatedAnswered) continue
     waiting.add(key)
     settings.relatedPending.push({ ...offer })
     added = true
   }
-  const pending = settings.relatedPending.filter(o => !declined.has(relatedKey(o.path, o.link)))
+  const pending = settings.relatedPending.filter(o => !declined.has(relatedKey(o.path, o.link)) && !(relatedKey(o.path, o.link) in settings.relatedAnswered))
   if (pending.length !== settings.relatedPending.length) settings.relatedPending = pending
   return added
 }
