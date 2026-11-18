@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.206] - 2026-11-18
+
+- The daily check-in shows a notice in the top-right corner while it works ("Daily check-in: looking at Plex and Steam…", then your choices and daily notes), and says when it's done. If it can't reach Plex or Steam, it says so and tries again in an hour.
+- Opening Obsidian on a device that hasn't caught up with Sync no longer asks again about play counts, ratings and the like that another device already updated:
+  - Background updates and the daily check-in wait until Obsidian has been open for 3 minutes and no file has changed for a minute, which is when Sync has usually brought everything in. "Check in now" still runs at once.
+  - A note that changes after it was looked at and before you're asked about it (Sync bringing in another device's changes) isn't asked about in that run. The next one looks at it afresh.
+
 ## [0.0.205] - 2026-11-17
 
 - Books you read are offered for your daily notes' Related property, like shows, movies and games:

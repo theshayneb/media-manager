@@ -54,6 +54,10 @@ class ProgressNotice {
   }
 }
 
+/** Background updates wait this long after Obsidian starts, and for the vault to be this long without changes (ms). */
+const SETTLE_AFTER_START = 3 * 60 * 1000
+const SETTLE_QUIET = 60 * 1000
+
 export default class PlexMediaNotesPlugin extends Plugin {
   settings: PlexNotesSettings = defaultSettings()
   private plexSyncRunning = false
@@ -307,8 +311,32 @@ export default class PlexMediaNotesPlugin extends Plugin {
 
     // Background play count updates: check at startup and every 10 minutes whether one is due.
     // The last run time is saved, so the schedule survives restarts and is shared by synced devices.
+    // Not before Obsidian Sync has caught up (`syncSettled`): a device opened after a while would
+    // otherwise ask about what another device already did.
+    for (const name of ['modify', 'create', 'delete', 'rename'] as const) {
+      this.registerEvent(this.app.vault.on(name as 'modify', () => { this.lastVaultChange = Date.now() }))
+    }
+    this.register(() => window.clearTimeout(this.settleTimer))
     this.app.workspace.onLayoutReady(() => void this.updatePlayCountsIfDue())
     this.registerInterval(window.setInterval(() => void this.updatePlayCountsIfDue(), 10 * 60 * 1000))
+  }
+
+  /** When the plugin started, and when a file in the vault last changed (ms). */
+  private readonly startedAt = Date.now()
+  private lastVaultChange = 0
+  private settleTimer = 0
+
+  /**
+   * Whether Obsidian Sync has likely caught up: Obsidian has been open a few minutes, no file has
+   * changed for a minute (Sync writes what other devices did as file changes), and Sync, where it
+   * says so, isn't syncing.
+   */
+  private syncSettled(): boolean {
+    const now = Date.now()
+    if (now - this.startedAt < SETTLE_AFTER_START || now - this.lastVaultChange < SETTLE_QUIET) return false
+    const sync = (this.app as unknown as { internalPlugins?: { getPluginById?: (id: string) => { enabled?: boolean, instance?: { syncing?: unknown } } | null } })
+      .internalPlugins?.getPluginById?.('sync')
+    return !(sync?.enabled && sync.instance?.syncing === true)
   }
 
   /**
@@ -320,6 +348,12 @@ export default class PlexMediaNotesPlugin extends Plugin {
    */
   async updatePlayCountsIfDue(): Promise<void> {
     if (this.plexSyncRunning || this.checkingIn) return
+    if (!this.syncSettled()) {
+      // Looked at again in a minute, rather than waiting for the next 10-minute look.
+      window.clearTimeout(this.settleTimer)
+      this.settleTimer = window.setTimeout(() => void this.updatePlayCountsIfDue(), 60 * 1000)
+      return
+    }
     // Another device may have changed the settings (say, a lock): start from what's saved, so this
     // run's save doesn't put back an older copy.
     await this.reloadSettings()
@@ -421,18 +455,22 @@ export default class PlexMediaNotesPlugin extends Plugin {
     const updating = updatePlayCounts || updateRatings || updateStatus
     this.plexSyncRunning = true
     let ran = false
-    // The check-in's pop-ups show its steps: Updates, Daily notes, Just finished.
+    // The check-in's pop-ups show its steps: Updates, Daily notes, Just finished. A notice in the
+    // corner says it's working until its questions are done.
     if (how === 'check-in') startCheckIn()
+    const notice = how === 'check-in' ? new ProgressNotice('Daily check-in: looking at Plex and Steam…') : null
+    const progress = (message: string) => notice?.set(`Daily check-in: ${message}`)
     try {
       // With asking off nothing is asked, so it's done at every update.
       if (updating && (how !== 'quiet' || !askBeforeChanges) && plexReady(this.settings)) {
         const sync = this.newSync()
         // The check-in also reads songs' music files (lyrics and tags), so their changes come up then too.
         sync.readMusicFiles = how === 'check-in'
-        const result = await sync.run(() => {}, 'playCounts')
+        const result = await sync.run(progress, 'playCounts')
         if (result.playCounts.length) console.log('Media Manager: kept up to date (play counts, ratings, status)', result.playCounts)
         if (result.failed.length) console.error('Media Manager: failed items', result.failed)
       }
+      progress('daily notes…')
       const days = await this.dailyEpisodes(() => {})
       if (days.length) console.log('Media Manager: episodes added to daily notes', days)
       // Automatic collections ("Comfort: comfort"), sent again once a week, unasked: they hold
@@ -460,10 +498,11 @@ export default class PlexMediaNotesPlugin extends Plugin {
       // Plex or Steam may be out of reach (say, a phone away from home); quietly try again in an hour.
       this.playCountRetryAt = now + 3600 * 1000
       console.warn('Media Manager: background play count update failed', err)
-      if (byHand) new Notice(`Checking in failed: ${errorMessage(err)}`, 10000)
+      if (byHand || how === 'check-in') new Notice(`Daily check-in failed: ${errorMessage(err)}${byHand ? '' : '. Trying again in an hour.'}`, 10000)
     } finally {
       this.plexSyncRunning = false
       this.syncs.clear()
+      notice?.hide()
     }
     if (!ran) {
       endCheckIn()
@@ -482,7 +521,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
       const related = await this.askRelated()
       checkInStep(2)
       const finished = await this.askFinished()
-      if (byHand && !related && !finished) new Notice('Nothing is waiting for you')
+      new Notice(related || finished ? 'Daily check-in done' : 'Daily check-in done: nothing else is waiting for you', 5000)
     } finally {
       this.checkingIn = false
       endCheckIn()

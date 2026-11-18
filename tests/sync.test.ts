@@ -368,6 +368,24 @@ describe('PlexSync', () => {
     expect(files.has(mine)).toBe(true)
   })
 
+  it('leaves a note that changed while waiting to be asked about (Sync catching up) for next time', async () => {
+    const arrival = 'Media/Movies/Arrival (2016).md'
+    const heat = 'Media/Movies/Heat (1995).md'
+    const { app, files } = makeApp({ [arrival]: { Status: 'revisit' }, [heat]: { Status: 'revisit' } })
+    for (const path of [arrival, heat]) Object.assign(files.get(path)!, { stat: { mtime: 1 } })
+    const asked: string[] = []
+    const approve = vi.fn((r: ApprovalRequest): Promise<Decision> => {
+      if (r.action !== 'change' || ![arrival, heat].includes(r.path)) return Promise.resolve({ choice: 'skip', excluded: [] })
+      asked.push(r.path)
+      // While the first is asked about, the other note changes.
+      Object.assign(files.get(r.path === arrival ? heat : arrival)!, { stat: { mtime: 2 } })
+      return Promise.resolve({ choice: 'skip', excluded: [] })
+    })
+    await new PlexSync(app as never, settingsWith(), () => Promise.resolve(), approve).run(() => {})
+    expect(asked).toHaveLength(1)
+    expect([arrival, heat]).toContain(asked[0])
+  })
+
   it('writes only the genres to keep', async () => {
     const { app, frontmatter } = makeApp({})
     const settings = settingsWith({ allowedGenres: ['Sci-Fi', 'Action'] })

@@ -766,7 +766,7 @@ export class PlexSync {
       progress('Checking existing notes…')
       // Every note's changes are worked out first, then asked about grouped by library and by which
       // properties change, so a run of the same kind of change can be approved one after another.
-      const pending: { lib: ActiveLibrary, labels: string[], name: string, decide: (position: number, total: number, group: string, groupKey: string, groupLeft: number) => Promise<void> }[] = []
+      const pending: { lib: ActiveLibrary, labels: string[], name: string, file: TFile, mtime: number, decide: (position: number, total: number, group: string, groupKey: string, groupLeft: number) => Promise<void> }[] = []
       for (const family of FAMILIES) {
         const index = indexes[family]
         const matches = entries
@@ -924,7 +924,7 @@ export class PlexSync {
           const lockedHere = this.settings.lockedProperties[path] ?? []
           const askedLines = lines.filter(line => !lockedHere.includes(line.label))
           if (!askedLines.length) continue
-          pending.push({ lib, labels: [...new Set(askedLines.map(line => line.label))].sort(), name: file.basename, decide: async (position, total, group, groupKey, groupLeft) => {
+          pending.push({ lib, labels: [...new Set(askedLines.map(line => line.label))].sort(), name: file.basename, file, mtime: mtimeOf(file), decide: async (position, total, group, groupKey, groupLeft) => {
             const approval = await this.ask({ action: 'change', path, lines, position, total, group, groupKey, groupLeft }, result, item, lib)
             if (!approval) return
             const { excluded, edits } = approval
@@ -1079,6 +1079,13 @@ export class PlexSync {
       for (const p of pending) {
         position++
         if (result.stopped) break
+        // Changed since it was looked at (most often Obsidian Sync bringing in what another device
+        // already did): what was planned may be out of date, so it isn't asked now; the next sync
+        // looks at it afresh.
+        if (mtimeOf(p.file) !== p.mtime) {
+          console.log(`Media Manager: ${p.file.path} changed while waiting to be asked about; left for next time`)
+          continue
+        }
         const same = pending.filter(q => q.lib.title === p.lib.title && groupOf(q) === groupOf(p))
         const place = same.indexOf(p) + 1
         // The corner message says the looking is done and it's your turn, not the last item looked at.
@@ -2976,4 +2983,9 @@ function keptEntry(entry: string): { kept: string, offered: string } | null {
   } catch {
     return null
   }
+}
+
+/** When a note was last changed (ms; 0 when unknown, as for the tests' notes). */
+function mtimeOf(file: TFile): number {
+  return (file.stat as TFile['stat'] | undefined)?.mtime ?? 0
 }
