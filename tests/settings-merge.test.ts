@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultSettings, loadSettings, mergeAnswers, type PlexNotesSettings } from '../src/config'
-import { isSettingsData, mergeSettings, snapshot, stampChanges, STAMPS_KEPT } from '../src/settings-merge'
+import { isSettingsData, mergeSettings, sameSettings, snapshot, stampChanges, STAMPS_KEPT } from '../src/settings-merge'
 
 const DAY = 86400 * 1000
 const T0 = Date.UTC(2026, 10, 1)
@@ -74,7 +74,7 @@ describe('mergeSettings', () => {
     expect(Object.keys(merge(undone, caughtUp.save(T0 + 2 * DAY)).ignored)).toEqual(['9'])
   })
 
-  it('takes the most recently changed ordinary setting, else keeps its own', () => {
+  it('takes the most recently changed ordinary setting, else the same pick on every device', () => {
     const desktop = device()
     const phone = device()
     phone.settings.checkInAt = '21:00'
@@ -85,12 +85,22 @@ describe('mergeSettings', () => {
       expect(merged.checkInAt).toBe('21:00')
       expect(merged.dailyRelated).toBe('Linked')
     }
-    // Never changed since stamps began, and different: each copy keeps its own (nothing is lost).
+    // Never changed since stamps began, both filled and different: every device picks the same one,
+    // so the copies agree and aren't written back and forth (0.0.208 had each keep its own).
     const a = loadSettings({})
     const b = loadSettings({})
     b.bedtimeFrom = '23:00'
-    expect(merge(a, b).bedtimeFrom).toBe(a.bedtimeFrom)
-    expect(merge(b, a).bedtimeFrom).toBe('23:00')
+    expect(merge(a, b).bedtimeFrom).toBe(merge(b, a).bedtimeFrom)
+    a.lastPlayCountUpdate = 5
+    b.lastPlayCountUpdate = 9
+    expect(merge(a, b).lastPlayCountUpdate).toBe(9)
+    expect(merge(b, a).lastPlayCountUpdate).toBe(9)
+    // The same settings in another order are the same.
+    const reordered = loadSettings({})
+    reordered.keptValues = { b: '2', a: '1' }
+    const ordered = loadSettings({})
+    ordered.keptValues = { a: '1', b: '2' }
+    expect(sameSettings(reordered, ordered)).toBe(true)
   })
 
   it('never brings back a Related offer answered on another device', () => {

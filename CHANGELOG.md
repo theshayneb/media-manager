@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.209] - 2026-11-18
+
+- Fixed: since 0.0.207, devices could keep writing the settings file back and forth, so Obsidian Sync sent data.json over and over, about every 30 seconds. Two causes:
+  - For a setting nobody had changed since 0.0.207, each device kept its own value and wrote it back, for ever. Now every device makes the same pick: the filled value over an empty one, else the larger number, else the same one in a fixed order.
+  - The same settings in a different order counted as a difference. Now only a real difference is written.
+- Update every device: one still on 0.0.207 or 0.0.208 can keep the back-and-forth going.
+
 ## [0.0.208] - 2026-11-18
 
 - Fixed: 0.0.207 could wipe your Plex server, token, API keys, libraries and remembered choices. While Obsidian Sync writes the settings file, it can be empty or missing for a moment; 0.0.207 read that as the other device's settings, took its empty values over yours, and spread them to your other devices. Now:

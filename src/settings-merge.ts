@@ -89,6 +89,40 @@ export function describeSettings(data: unknown): string {
 
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b)
 
+/**
+ * One of two values neither copy's stamps can choose between, picked the same way on every device
+ * (the larger number, else the later in a fixed order), so devices end up agreeing instead of each
+ * keeping its own and writing it back for ever.
+ */
+function pickSame(a: unknown, b: unknown): unknown {
+  if (typeof a === 'number' && typeof b === 'number') return Math.max(a, b)
+  return canonical(a) >= canonical(b) ? a : b
+}
+
+/** A value as text with every object's keys in order, so the same settings always read the same. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) => v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
+    : v)
+}
+
+/**
+ * Whether two copies of the settings hold the same: the same values and entries, whatever order
+ * keys, lists of distinct strings and waiting offers are in. Only a real difference is written back.
+ */
+export function sameSettings(a: unknown, b: unknown): boolean {
+  const norm = (data: unknown) => {
+    if (!data || typeof data !== 'object') return data
+    const out: Record<string, unknown> = { ...(data as Record<string, unknown>) }
+    for (const key of SETS) if (Array.isArray(out[key])) out[key] = [...out[key] as string[]].sort()
+    for (const [key, keyOf] of Object.entries(KEYED)) {
+      if (Array.isArray(out[key])) out[key] = [...out[key] as RelatedOffer[]].sort((x, y) => keyOf(x) < keyOf(y) ? -1 : keyOf(x) > keyOf(y) ? 1 : 0)
+    }
+    return out
+  }
+  return canonical(norm(a)) === canonical(norm(b))
+}
+
 /** A deep copy, as the starting point for the next `stampChanges`. */
 export function snapshot<T>(settings: T): T {
   return JSON.parse(JSON.stringify(settings)) as T
@@ -164,15 +198,18 @@ export function mergeSettings(local: Settings, remote: Settings, now: number): S
       if (!(key in r)) out[key] = l[key]
       else if (!(key in l)) out[key] = r[key]
       // Changed since stamps began: the later change.
-      else if (lt || rt) out[key] = lt >= rt ? l[key] : r[key]
-      // Never changed since: an empty value never replaces a filled one; otherwise this copy's.
-      else out[key] = isEmpty(l[key]) && !isEmpty(r[key]) ? r[key] : l[key]
+      else if (lt !== rt) out[key] = lt > rt ? l[key] : r[key]
+      // Never changed since (or at the same moment): an empty value never replaces a filled one;
+      // otherwise the same pick on every device, so the copies agree and stop being written back.
+      else if (isEmpty(l[key]) !== isEmpty(r[key])) out[key] = isEmpty(l[key]) ? r[key] : l[key]
+      else out[key] = pickSame(l[key], r[key])
       continue
     }
     const le = entriesOf(key, l[key])
     const re = entriesOf(key, r[key])
     const merged: Entries = {}
-    const order = [...Object.keys(le), ...Object.keys(re).filter(k => !(k in le))]
+    // The other copy's order first, so a copy that adds nothing comes out the same as that one.
+    const order = [...Object.keys(re), ...Object.keys(le).filter(k => !(k in re))]
     for (const entry of order) {
       const id = `${key}${SEP}${entry}`
       const setAt = stamps.set[id] ?? 0
@@ -180,7 +217,11 @@ export function mergeSettings(local: Settings, remote: Settings, now: number): S
       if (removedAt > setAt) continue
       if (!(entry in le)) merged[entry] = re[entry]
       else if (!(entry in re)) merged[entry] = le[entry]
-      else merged[entry] = (ls?.set[id] ?? 0) > (rs?.set[id] ?? 0) ? le[entry] : re[entry]
+      else {
+        const lt = ls?.set[id] ?? 0
+        const rt = rs?.set[id] ?? 0
+        merged[entry] = lt !== rt ? (lt > rt ? le[entry] : re[entry]) : pickSame(le[entry], re[entry])
+      }
     }
     // Entries removed here and stamped so are gone, even when the other copy still has them.
     if (kind === 'map') {

@@ -27,7 +27,7 @@ import { parseCollectionRules } from './collections'
 import { CollectionsModal } from './collections-modal'
 import { minutesOf } from './daily-episodes'
 import { BookReadingWatcher } from './reading-watch'
-import { describeSettings, isSettingsData, mergeSettings, snapshot, stampChanges } from './settings-merge'
+import { describeSettings, isSettingsData, mergeSettings, sameSettings, snapshot, stampChanges } from './settings-merge'
 import { checkInStep, endCheckIn, startCheckIn } from './check-in-steps'
 
 /** Where each device keeps its own copy of your answers (`mergeAnswers`). */
@@ -805,7 +805,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
         // Only a backup.
       }
     }
-    if (isSettingsData(data) && JSON.stringify(this.settings) !== JSON.stringify(disk)) await this.writeSettings()
+    if (isSettingsData(data) && !sameSettings(this.settings, disk)) await this.writeSettings()
   }
 
   /** Where dated copies of the settings are kept, in the plugin's folder (`settings-YYYY-MM-DD.json`). */
@@ -931,7 +931,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
     for (const key of Object.keys(this.settings)) if (!(key in merged)) delete (this.settings as unknown as Record<string, unknown>)[key]
     Object.assign(this.settings, merged)
     this.settingsBefore = snapshot(this.settings)
-    return JSON.stringify(merged) !== JSON.stringify(disk)
+    return !sameSettings(merged, disk)
   }
 
   /**

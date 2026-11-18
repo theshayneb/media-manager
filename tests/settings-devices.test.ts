@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest'
 import { loadSettings, type PlexNotesSettings } from '../src/config'
-import { isSettingsData, mergeSettings, snapshot, stampChanges } from '../src/settings-merge'
+import { isSettingsData, mergeSettings, sameSettings, snapshot, stampChanges } from '../src/settings-merge'
 
 // A model of main.ts's load/reload/save, per device, with a shared "Sync" that copies files around.
 type Disk = { data: unknown }
@@ -16,7 +16,7 @@ class Device {
     this.settings = b && 'syncStamps' in b ? loadSettings(mergeSettings(loadSettings(b), disk, now)) : disk
     this.before = snapshot(this.settings)
     if (isSettingsData(this.settings)) this.backup = snapshot(this.settings)
-    if (JSON.stringify(this.settings) !== JSON.stringify(disk)) this.write()
+    if (isSettingsData(data) && !sameSettings(this.settings, disk)) this.write()
   }
   stamp(now: number) { if (this.before) { stampChanges(this.before, this.settings, this.settings.syncStamps, now); this.before = snapshot(this.settings) } }
   mergeDisk(now: number) {
@@ -26,11 +26,12 @@ class Device {
     const merged = loadSettings(mergeSettings(this.settings, disk, now))
     Object.assign(this.settings, merged)
     this.before = snapshot(this.settings)
-    return JSON.stringify(merged) !== JSON.stringify(disk)
+    return !sameSettings(merged, disk)
   }
   reload(now: number) { if (this.mergeDisk(now)) this.write() }
   save(now: number) { this.stamp(now); this.mergeDisk(now); this.write() }
-  write() { this.disk.data = snapshot(this.settings); this.backup = snapshot(this.settings) }
+  writes = 0
+  write() { this.writes++; this.disk.data = snapshot(this.settings); this.backup = snapshot(this.settings) }
 }
 
 it('never loses the server, libraries or remembered choices, whatever Sync does (empty files, overlays, restarts)', () => {
@@ -50,6 +51,11 @@ it('never loses the server, libraries or remembered choices, whatever Sync does 
     const check = () => {
       // Sync catches up: every device gets every other's file a few times over.
       for (let round = 0; round < 3; round++) for (const x of devs) for (const y of devs) { now += 1000; x.disk.data = snapshot(y.disk.data); x.reload(now) }
+      // Caught up: one more round changes nothing, so nobody writes (0.0.208 kept writing back and forth).
+      const before = devs.map(x => x.writes)
+      for (const x of devs) for (const y of devs) { now += 1000; x.disk.data = snapshot(y.disk.data); x.reload(now) }
+      const busy = devs.filter((x, i) => x.writes !== before[i]).map(x => x.name)
+      if (busy.length) bad = `seed ${seed}: still writing after catching up: ${busy.join(', ')}\n` + log.join('\n')
       for (const x of devs) if (!x.settings.serverUrl || !x.settings.libraries['1'] || !x.settings.keptValues.a) {
         bad = `seed ${seed}: ${x.name} lost ${!x.settings.serverUrl ? 'server ' : ''}${!x.settings.libraries['1'] ? 'libraries ' : ''}${!x.settings.keptValues.a ? 'kept' : ''}\n` + log.join('\n')
       }
