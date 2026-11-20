@@ -140,6 +140,8 @@ export interface PlexNotesSettings {
   gamePlaytimes: Record<string, number> | null
   /** Games in a Steam collection that finishes them (completed, abandoned), by `steam-<appid>`, and since when (`finishSeen`); null before the first look. */
   gameFinishSeen: Record<string, FinishSeen> | null
+  /** Days you played a Steam game, `steam-<appid>|YYYY-MM-DD` → minutes played that day, for "Just finished" (kept 30 days). */
+  gameDays: Record<string, number>
   /** Related links you said no to (`relatedKey`: daily note path and link target), not offered again. */
   relatedDeclined: string[]
   /** Related offers you answered, yes or no (`relatedKey` → when), never offered again (kept 60 days). */
@@ -316,6 +318,7 @@ export function defaultSettings(): PlexNotesSettings {
     relatedPending: [],
     relatedDeclined: [],
     relatedAnswered: {},
+    gameDays: {},
     syncStamps: { set: {}, removed: {} },
     gamePlaytimes: null,
     gameFinishSeen: null,
@@ -489,6 +492,7 @@ export function loadSettings(data: unknown): PlexNotesSettings {
   }
   if (saved.gamePlaytimes && typeof saved.gamePlaytimes === 'object') settings.gamePlaytimes = Object.fromEntries(Object.entries(saved.gamePlaytimes as Record<string, unknown>).filter(([, v]) => typeof v === 'number').map(([k, v]) => [k, v as number]))
   if (Array.isArray(saved.relatedDeclined)) settings.relatedDeclined = saved.relatedDeclined.map(String)
+  if (saved.gameDays && typeof saved.gameDays === 'object') settings.gameDays = Object.fromEntries(Object.entries(saved.gameDays as Record<string, unknown>).filter(([, v]) => typeof v === 'number').map(([k, v]) => [k, v as number]))
   if (saved.relatedAnswered && typeof saved.relatedAnswered === 'object') settings.relatedAnswered = Object.fromEntries(Object.entries(saved.relatedAnswered as Record<string, unknown>).filter(([, v]) => typeof v === 'number').map(([k, v]) => [k, v as number]))
   const stamps = saved.syncStamps as Partial<SyncStamps> | undefined
   const times = (from: unknown) => from && typeof from === 'object' ? Object.fromEntries(Object.entries(from as Record<string, unknown>).filter(([, v]) => typeof v === 'number')) as Record<string, number> : {}

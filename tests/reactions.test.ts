@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { addReaction, finishSeen, reactedSince, reactionLine, wordList } from '../src/reactions'
+import { addGameDay, addReaction, finishSeen, gameDaysToAsk, playedText, reactedSince, reactionLine, wordList } from '../src/reactions'
+import { parseReaction } from '../src/insights-data'
 
 const names = { reactions: 'Reactions', feelings: 'Feelings', themes: 'Themes', rating: 'Rating' }
 
@@ -56,5 +57,36 @@ describe('reactions', () => {
     const second = finishSeen({ 'steam-1': 'Completed', 'steam-2': 'abandoned' }, first, 200)
     expect(second).toEqual({ 'steam-1': { status: 'completed', at: 100, existing: true }, 'steam-2': { status: 'abandoned', at: 200 } })
     expect(finishSeen({ 'steam-2': 'completed' }, second, 300)).toEqual({ 'steam-2': { status: 'completed', at: 300 } })
+  })
+})
+
+describe('game days', () => {
+  it('says how long a game was played', () => {
+    expect(playedText(0)).toBe('')
+    expect(playedText(undefined)).toBe('')
+    expect(playedText(40)).toBe('40 min played')
+    expect(playedText(150)).toBe('2.5 h played')
+    expect(playedText(61)).toBe('1 h played')
+  })
+
+  it('adds up a day\'s playtime and forgets old days', () => {
+    let days = addGameDay({ 'steam-1|2026-10-01': 30 }, 'steam-2', '2026-11-19', 60, '2026-10-21')
+    days = addGameDay(days, 'steam-2', '2026-11-19', 30, '2026-10-21')
+    expect(days).toEqual({ 'steam-2|2026-11-19': 90 })
+  })
+
+  it('lists each game and day once, Steam\'s with the time, linked ones too', () => {
+    const steam = { 'steam-2|2026-11-19': 90, 'steam-3|2026-11-01': 20 }
+    const linked = [{ key: 'steam-2', day: '2026-11-19' }, { key: 'game:Games/Celeste.md', day: '2026-11-18' }]
+    expect(gameDaysToAsk(steam, linked, '2026-11-06')).toEqual([
+      { key: 'game:Games/Celeste.md', day: '2026-11-18', minutes: 0 },
+      { key: 'steam-2', day: '2026-11-19', minutes: 90 },
+    ])
+  })
+
+  it('names the time played in the reaction line, and reads it back', () => {
+    const line = reactionLine({ date: '2026-11-19', feelings: ['happy'], themes: [], tags: [], played: '2.5 h played', text: 'boss down' })
+    expect(line).toBe('2026-11-19 · 2.5 h played · happy · boss down')
+    expect(parseReaction(line, ['happy'])).toEqual({ day: '2026-11-19', played: '2.5 h played', feelings: ['happy'], text: 'boss down' })
   })
 })

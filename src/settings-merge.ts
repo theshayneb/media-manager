@@ -27,7 +27,7 @@ export const STAMPS_KEPT = 180 * 86400 * 1000
 /** Maps merged entry by entry. */
 const MAPS = ['reactionsDone', 'gamePlaytimes', 'gameFinishSeen', 'lastfmGaps', 'fileNameReplacements', 'ignored', 'merged',
   'checkByLibrary', 'syncCompare', 'keptLinks', 'lockedProperties', 'keptValues', 'ratingsSeen', 'ratingsReviewed', 'libraries',
-  'relatedAnswered'] as const
+  'relatedAnswered', 'gameDays'] as const
 /** Lists of distinct strings merged entry by entry (order: this copy's, then the other's additions). */
 const SETS = ['relatedDeclined', 'reviewSkipped', 'notRewatches', 'listenedTo', 'collectionsDeclined', 'unmatchedIgnored',
   'notInterested', 'migrations'] as const

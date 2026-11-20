@@ -1,6 +1,6 @@
 {
   "name": "plex-media-notes",
-  "version": "0.0.209",
+  "version": "0.0.210",
   "description": "Obsidian plugin: create and sync notes from Plex and Steam",
   "main": "main.js",
   "scripts": {

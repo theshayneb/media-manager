@@ -25,6 +25,10 @@ export interface ReactionChoices {
    * editable; the line names them and leaves out the rating, which is the show's.
    */
   episodes?: string
+  /** For a day you played a game: how long ("2.5 h played", maybe empty), editable, named in the line. */
+  played?: string
+  /** Ask for a rating (not for a day you played a game, unless you finished it that day). */
+  askRating?: boolean
 }
 
 /** What the pop-up ended with: a reaction, "not now" (asked again later) or "don't ask" about this one. */
@@ -39,14 +43,16 @@ export class ReactionModal extends Modal {
   private readonly pmnPicked = { feelings: new Set<string>(), themes: new Set<string>(), tags: new Set<string>() }
   private pmnText = ''
   private pmnEpisodes: string | undefined
+  private pmnPlayed: string | undefined
   private pmnAnswered = false
   /** The "Add your own" box's theme not yet added with Enter: added when saving. */
   private pmnOwnTheme: HTMLInputElement | null = null
 
   constructor(app: App, private readonly pmnChoices: ReactionChoices, private readonly pmnDone: (answer: ReactionAnswer) => void, private readonly pmnInbox = false) {
     super(app)
-    this.pmnRating = pmnChoices.rating && RATINGS.includes(pmnChoices.rating) ? pmnChoices.rating : undefined
+    this.pmnRating = pmnChoices.askRating !== false && pmnChoices.rating && RATINGS.includes(pmnChoices.rating) ? pmnChoices.rating : undefined
     this.pmnEpisodes = pmnChoices.episodes
+    this.pmnPlayed = pmnChoices.played
   }
 
   onOpen(): void {
@@ -67,18 +73,31 @@ export class ReactionModal extends Modal {
         })
     }
 
-    const ratingSection = this.pmnSection(this.pmnEpisodes !== undefined ? 'Rating for the show' : 'Rating')
-    if (this.pmnEpisodes !== undefined) ratingSection.createDiv({ cls: 'setting-item-description', text: 'Goes in the note\'s rating, not in this reaction.' })
-    const ratings = ratingSection.createDiv('pmn-reaction-chips')
-    const buttons = RATINGS.map(r => {
-      const b = ratings.createEl('button', { cls: 'pmn-reaction-chip pmn-reaction-rating', text: r })
-      b.addEventListener('click', () => {
-        this.pmnRating = this.pmnRating === r ? undefined : r
-        buttons.forEach((other, i) => other.toggleClass('is-active', RATINGS[i] === this.pmnRating))
+    if (this.pmnPlayed !== undefined) {
+      new Setting(contentEl)
+        .setName('Time played')
+        .setDesc(this.pmnPlayed ? 'From Steam: the playtime added that day.' : 'Steam didn\'t say how long: type it if you like, such as "2 h played".')
+        .addText(text => {
+          text.setPlaceholder('Optional').setValue(this.pmnPlayed ?? '').onChange(value => { this.pmnPlayed = value })
+          text.inputEl.addClass('pmn-reaction-text')
+        })
+    }
+
+    // A day you played a game asks no rating (unless you finished it that day).
+    if (c.askRating !== false) {
+      const ratingSection = this.pmnSection(this.pmnEpisodes !== undefined ? 'Rating for the show' : this.pmnPlayed !== undefined ? 'Rating for the game' : 'Rating')
+      if (this.pmnEpisodes !== undefined || this.pmnPlayed !== undefined) ratingSection.createDiv({ cls: 'setting-item-description', text: 'Goes in the note\'s rating, not in this reaction.' })
+      const ratings = ratingSection.createDiv('pmn-reaction-chips')
+      const buttons = RATINGS.map(r => {
+        const b = ratings.createEl('button', { cls: 'pmn-reaction-chip pmn-reaction-rating', text: r })
+        b.addEventListener('click', () => {
+          this.pmnRating = this.pmnRating === r ? undefined : r
+          buttons.forEach((other, i) => other.toggleClass('is-active', RATINGS[i] === this.pmnRating))
+        })
+        return b
       })
-      return b
-    })
-    buttons.forEach((b, i) => b.toggleClass('is-active', RATINGS[i] === this.pmnRating))
+      buttons.forEach((b, i) => b.toggleClass('is-active', RATINGS[i] === this.pmnRating))
+    }
 
     // Feelings are about this time (this episode, this rewatch): none picked to begin with, any can be.
     this.pmnChips('Feelings', c.feelings, c.has.feelings, this.pmnPicked.feelings, false, true)
@@ -176,6 +195,7 @@ export class ReactionModal extends Modal {
       tags: [...this.pmnPicked.tags],
       text: this.pmnText.trim() || undefined,
       ...this.pmnEpisodes !== undefined ? { episodes: this.pmnEpisodes.trim() } : {},
+      ...this.pmnPlayed !== undefined ? { played: this.pmnPlayed.trim() } : {},
     } })
   }
 
@@ -227,7 +247,11 @@ export class FinishedModal extends Modal {
         if (item.kind === 'game') {
           // A game: the Steam collection's status, when it went in, how long you played.
           if (item.status) text.createSpan({ cls: ['pmn-finished-status', /abandon/i.test(item.status) ? 'is-abandoned' : 'is-completed'], text: item.status })
-          text.createDiv({ cls: 'pmn-add-detail', text: [`Game · moved in ${moment.unix(item.viewedAt).format('ddd D MMM')}`, item.playtime ? `${Math.round(item.playtime / 60)} h played` : ''].filter(Boolean).join(' · ') })
+          // A day you played it: that day and how long; finished: when it moved and the total.
+          const detail = item.status
+            ? [`Game · moved in ${moment.unix(item.viewedAt).format('ddd D MMM')}`, item.played, item.playtime ? `${Math.round(item.playtime / 60)} h in all` : '']
+            : [`Game · played ${moment.unix(item.viewedAt).format('ddd D MMM')}`, item.played]
+          text.createDiv({ cls: 'pmn-add-detail', text: detail.filter(Boolean).join(' · ') })
         } else if (item.episodes !== undefined) {
           text.createDiv({ cls: 'pmn-add-detail', text: [`TV show · ${moment.unix(item.viewedAt).format('ddd D MMM')}`, item.episodes].filter(Boolean).join(' · ') })
         } else text.createSpan({ cls: 'pmn-add-detail', text: ` ${item.kind === 'show' ? 'TV show, all watched' : 'Movie'} · ${moment.unix(item.viewedAt).format('ddd D MMM')}` })

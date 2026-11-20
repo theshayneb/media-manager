@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.210] - 2026-11-20
+
+- "Just finished" (the nightly check-in's "How was it?" list) now asks about each day you played a game, like a show's episodes:
+  - A game day is a day its Steam playtime went up, or a day your daily note's Related links the game (so games outside Steam count too). Each game is asked about once per day.
+  - It shows how long you played that day ("2.5 h played"), worked out from the Steam playtime added since the desktop last looked. If several days pass between looks, all of it goes on the last day played.
+  - The reaction pop-up has an editable "Time played" box and no rating question, and the reaction line reads "2026-11-19 · 2.5 h played · feelings · words".
+  - A game you finish (moved to a completed or abandoned Steam collection) on a day you played it is asked about once, with its status and that day's time, and still asks for a rating.
+  - Only a reaction dated that day, or "Not this one", answers a day. Days from the last two weeks are listed.
+- The setting is now "Ask about every episode and game day" (Reactions). Off, games are only asked about when finished, as before.
+
 ## [0.0.209] - 2026-11-18
 
 - Fixed: since 0.0.207, devices could keep writing the settings file back and forth, so Obsidian Sync sent data.json over and over, about every 30 seconds. Two causes:

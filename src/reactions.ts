@@ -27,6 +27,8 @@ export interface Reaction {
    * the episodes': it still goes in the note's rating property.
    */
   episodes?: string
+  /** For a day you played a game: how long ("2.5 h played"), named in place of the rating. */
+  played?: string
 }
 
 /** Where a reaction goes in a note's properties. */
@@ -44,7 +46,7 @@ export interface ReactionProperties {
  */
 export function reactionLine(r: Reaction): string {
   const oneLine = (text: string | undefined) => text?.replace(/\s+/g, ' ').trim()
-  const middle = r.episodes !== undefined ? oneLine(r.episodes) : r.rating
+  const middle = r.episodes !== undefined ? oneLine(r.episodes) : r.played !== undefined ? oneLine(r.played) : r.rating
   return [r.date, middle, r.feelings.join(', '), oneLine(r.text)].filter(Boolean).join(' · ')
 }
 
@@ -96,6 +98,44 @@ export interface Finished {
   playtime?: number
   /** A show's episodes watched that day ("S02E03 – Title, …"), when asked about each day's episodes. */
   episodes?: string
+  /** A day you played a game: how long, when Steam says ("2.5 h played"; empty when not known). */
+  played?: string
+}
+
+/** How long a game was played, for its reaction: "40 min played", "2.5 h played"; '' for nothing. */
+export function playedText(minutes: number | undefined): string {
+  if (!minutes || minutes <= 0) return ''
+  if (minutes < 60) return `${Math.round(minutes)} min played`
+  return `${Math.round(minutes / 30) / 2} h played`
+}
+
+/**
+ * The game days remembered (`key|YYYY-MM-DD` → minutes played that day, from Steam) with this look's
+ * playtime added to its day, leaving out days before `keepFrom` (YYYY-MM-DD). A new object.
+ */
+export function addGameDay(days: Record<string, number>, key: string, day: string, minutes: number, keepFrom: string): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [id, m] of Object.entries(days)) if ((id.split('|').pop() ?? '') >= keepFrom) out[id] = m
+  const id = `${key}|${day}`
+  out[id] = (out[id] ?? 0) + Math.max(0, minutes)
+  return out
+}
+
+/**
+ * Each game and day to ask about, from `fromDay` (YYYY-MM-DD) on: the days Steam's playtime went up
+ * (with the minutes played) and the days your daily notes link a game (`linked`, by the same key
+ * when the note is a Steam game's), each game and day once, oldest first.
+ */
+export function gameDaysToAsk(steam: Record<string, number>, linked: { key: string, day: string }[], fromDay: string): { key: string, day: string, minutes: number }[] {
+  const out = new Map<string, { key: string, day: string, minutes: number }>()
+  for (const [id, minutes] of Object.entries(steam)) {
+    const at = id.lastIndexOf('|')
+    const key = id.slice(0, at)
+    const day = id.slice(at + 1)
+    if (day >= fromDay) out.set(id, { key, day, minutes })
+  }
+  for (const { key, day } of linked) if (day >= fromDay && !out.has(`${key}|${day}`)) out.set(`${key}|${day}`, { key, day, minutes: 0 })
+  return [...out.values()].sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : a.key < b.key ? -1 : 1)
 }
 
 /** When a game was first seen in a Steam collection that finishes it, and with which status. */

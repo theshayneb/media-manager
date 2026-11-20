@@ -2116,6 +2116,32 @@ describe('PlexSync', () => {
     vi.mocked(readSteamCollections).mockReturnValue(null)
   })
 
+  it('lists each day you played a game, with how long, to react to', async () => {
+    steamResponses = {
+      'https://api.steampowered.com/IPlayerService/GetOwnedGames': { response: { games: [{ appid: 620, name: 'Portal 2', playtime_forever: 600 }] } },
+    }
+    const { app } = makeApp({
+      'Media/Video Games/Portal 2.md': { Link: 'https://store.steampowered.com/app/620/' },
+      'Media/Video Games/Hades.md': { Link: 'https://store.steampowered.com/app/1145360/' },
+    })
+    const settings = settingsWith({ steam: { apiKey: 'k', account: '76561197960287930', includeFreeGames: false }, reactToEpisodes: true })
+    settings.libraries = {}
+    const { ensureSteamLibrary } = await import('../src/config')
+    ensureSteamLibrary(settings)
+    responses.set('/status/sessions/history/all', { MediaContainer: { Metadata: [] } })
+    vi.mocked(readSteamCollections).mockReturnValue(null)
+    const day = new Date()
+    day.setDate(day.getDate() - 1)
+    const yesterday = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
+    settings.gameDays = { [`steam-620|${yesterday}`]: 150, [`steam-1145360|${yesterday}`]: 0, 'steam-620|2020-01-01': 60 }
+    const sync = new PlexSync(app as never, settings, () => Promise.resolve())
+    const items = await sync.finishedItems()
+    expect(items.map(i => [i.title, i.kind, i.played])).toEqual([['Hades', 'game', ''], ['Portal 2', 'game', '2.5 h played']])
+    // Answered (or set aside): that day isn't asked about again.
+    await sync.setFinishedDone(items[1])
+    expect((await sync.finishedItems()).map(i => i.title)).toEqual(['Hades'])
+  })
+
   it('keeps a game\'s Steam collections in step, and leaves them alone when they can\'t be read', async () => {
     steamResponses = {
       'https://api.steampowered.com/IPlayerService/GetOwnedGames': { response: { games: [{ appid: 620, name: 'Portal 2', playtime_forever: 0 }] } },

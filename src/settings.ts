@@ -457,8 +457,8 @@ export class PlexNotesSettingTab extends PluginSettingTab {
         await this.save()
       }))
     new Setting(containerEl)
-      .setName('Ask about every episode')
-      .setDesc('"Just finished" also lists each day you watched a show, with that day\'s episodes, whether or not the show is finished, so you can say how those episodes felt. Off, a show is only listed once every episode is watched.')
+      .setName('Ask about every episode and game day')
+      .setDesc('"Just finished" also lists each day you watched a show, with that day\'s episodes, whether or not the show is finished, and each day you played a game (Steam playtime going up, or a game linked in that day\'s daily note), with how long, so you can say how it felt. Off, a show is only listed once every episode is watched, and a game once it\'s in a completed or abandoned Steam collection.')
       .addToggle(toggle => toggle.setValue(settings.reactToEpisodes).onChange(async value => {
         settings.reactToEpisodes = value
         await this.save()

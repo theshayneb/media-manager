@@ -40,7 +40,7 @@ import {
 } from './notes'
 import { lookUpBook } from './discover'
 import { watchEvents, type WatchEvent } from './insights-data'
-import { addReaction, finishedKey, finishSeen, reactedSince, type Finished, type Reaction, type ReactionProperties } from './reactions'
+import { addGameDay, addReaction, finishedKey, finishSeen, gameDaysToAsk, playedText, reactedSince, type Finished, type Reaction, type ReactionProperties } from './reactions'
 import { episodeEntry, episodesByDay, episodesOn, type WatchedEpisode, gamesPlayed, inWindow, isListedShow, insertEntries, linkTarget, moviesByDay, relatedKey, watchedEpisodes, watchedMovies, withRelated, type HistoryEntry, type WatchedMovie } from './daily-episodes'
 import { PlexClient } from './plex'
 import { HltbClient } from './hltb'
@@ -1293,11 +1293,14 @@ export class PlexSync {
       out.push({ key, title: note.basename, kind: 'show', viewedAt: at, path: note.path })
     }
     // Games moved into a Steam collection that finishes them (desktop only).
+    const finished: Finished[] = []
     try {
-      out.push(...await this.finishedGames())
+      finished.push(...await this.finishedGames())
     } catch (err) {
       console.warn('Media Manager: reading Steam collections for finished games failed', err)
     }
+    out.push(...finished)
+    if (this.settings.reactToEpisodes) out.push(...this.gameDayItems(finished))
     return out.sort((a, b) => b.viewedAt - a.viewedAt)
   }
 
@@ -1538,7 +1541,8 @@ export class PlexSync {
       if (added) changed.push(path)
     }
     this.settings.dailyEpisodesSince = retryFrom
-    if (this.settings.dailyRelated && steamReady(this.settings)) {
+    // Games played: offered for Related, and remembered by day for "Just finished".
+    if ((this.settings.dailyRelated || this.settings.reactToEpisodes) && steamReady(this.settings)) {
       try {
         await this.offerGamesPlayed(pathOf)
       } catch (err) {
@@ -1596,11 +1600,23 @@ export class PlexSync {
     const owned = await new SteamClient(apiKey.trim(), account.trim(), includeFreeGames).ownedGames()
     const { played, seen } = gamesPlayed(owned.map(g => ({ key: g.ratingKey, title: g.title, playtime: g.playtimeMinutes ?? 0, lastPlayed: g.lastViewedAt })), this.settings.gamePlaytimes, Math.floor(new Date().setHours(0, 0, 0, 0) / 1000))
     const notes = this.gameNotes()
+    const keepFrom = moment.unix(Math.floor(Date.now() / 1000) - 30 * 86400).format('YYYY-MM-DD')
     for (const game of played) {
       const note = notes.get(game.key)
       if (!note || game.key in this.settings.ignored || this.settings.unmatchedIgnored.includes(note.path)) continue
       const path = pathOf(game.lastPlayed)
       const daily = this.app.vault.getAbstractFileByPath(path)
+      // The day it was played, and how long since the last look, for "Just finished" (once: a game
+      // looked at again later, below, isn't counted now).
+      const remember = () => {
+        const before = this.settings.gamePlaytimes?.[game.key]
+        const minutes = before === undefined ? 0 : game.playtime - before
+        this.settings.gameDays = addGameDay(this.settings.gameDays, game.key, moment.unix(game.lastPlayed).format('YYYY-MM-DD'), minutes, keepFrom)
+      }
+      if (!related) {
+        remember()
+        continue
+      }
       if (!(daily instanceof TFile)) {
         // Not there yet: looked at again next time.
         const before = this.settings.gamePlaytimes?.[game.key]
@@ -1608,6 +1624,7 @@ export class PlexSync {
         else seen[game.key] = before
         continue
       }
+      remember()
       const has: unknown = this.app.metadataCache.getFileCache(daily)?.frontmatter?.[related]
       const link = `[[${this.app.metadataCache.fileToLinktext(note, path, true)}]]`
       this.offerRelated(path, has, this.relatedSame(path), { link, title: note.basename, kind: 'game', viewedAt: game.lastPlayed })
@@ -1718,6 +1735,46 @@ export class PlexSync {
    * are offered for a month, and only when their note has no reaction yet. Desktop only (Steam's
    * collections are in its files on this computer); none on a phone.
    */
+  /**
+   * Each day you played a game in the last 14 days, to react to: the days Steam's playtime went up
+   * (`settings.gameDays`, with how long) and the days your daily notes' Related links a game note.
+   * A game finished that same day (`finished`) is asked about once: the finished one gets the time
+   * played. Only a reaction dated that very day, or "Not this one", answers a day.
+   */
+  private gameDayItems(finished: Finished[]): Finished[] {
+    const notes = this.gameNotes()
+    const keyOf = new Map([...notes].map(([key, note]) => [note.path, key]))
+    const folders = Object.values(this.settings.libraries).filter(lib => lib.target === 'game').map(lib => normalizePath(lib.folder))
+    const fromDay = moment.unix(Math.floor(Date.now() / 1000) - 14 * 86400).format('YYYY-MM-DD')
+    let linked: { key: string, day: string }[] = []
+    try {
+      linked = this.relatedDays()
+        .filter(l => l.day >= fromDay && folders.some(f => l.path.startsWith(`${f}/`)))
+        .map(l => ({ key: keyOf.get(l.path) ?? `game:${l.path}`, day: l.day }))
+    } catch (err) {
+      // Daily notes unreadable: Steam's days are still asked about.
+      console.warn('Media Manager: reading daily notes for games played failed', err)
+    }
+    const dayOf = (seconds: number) => moment.unix(seconds).format('YYYY-MM-DD')
+    const out: Finished[] = []
+    for (const { key, day, minutes } of gameDaysToAsk(this.settings.gameDays, linked, fromDay)) {
+      const fromPath = key.startsWith('game:') ? key.slice(5) : null
+      const note = fromPath ? this.app.vault.getAbstractFileByPath(fromPath) : notes.get(key)
+      if (!(note instanceof TFile) || key in this.settings.ignored || this.settings.unmatchedIgnored.includes(note.path)) continue
+      const played = playedText(minutes)
+      const same = finished.find(f => f.key === key && dayOf(f.viewedAt) === day)
+      if (same) {
+        same.played = played
+        continue
+      }
+      // Midday, so the day reads the same whatever the time zone's quirks.
+      const at = Math.floor(new Date(`${day}T12:00:00`).getTime() / 1000)
+      if (this.finishedDone(key, at, note, true)) continue
+      out.push({ key, title: note.basename, kind: 'game', viewedAt: at, path: note.path, played })
+    }
+    return out
+  }
+
   private async finishedGames(): Promise<Finished[]> {
     const lib = this.settings.libraries[STEAM_LIBRARY] as LibrarySetting | undefined
     if (!lib || lib.target === 'skip' || !steamReady(this.settings)) return []

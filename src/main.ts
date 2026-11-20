@@ -644,7 +644,9 @@ export default class PlexMediaNotesPlugin extends Plugin {
   async reactToFinished(item: Finished): Promise<ReactionAnswer> {
     const file = this.app.vault.getAbstractFileByPath(item.path)
     if (!(file instanceof TFile)) return 'never'
-    const answer = await this.reactTo(file, moment.unix(item.viewedAt).format('YYYY-MM-DD'), true)
+    // A day you played a game: how long, and no rating unless you finished it that day.
+    const game = item.kind === 'game' && item.played !== undefined ? { played: item.played, askRating: Boolean(item.status) } : undefined
+    const answer = await this.reactTo(file, moment.unix(item.viewedAt).format('YYYY-MM-DD'), true, game)
     if (answer !== 'later') await new PlexSync(this.app, this.settings, () => this.saveSettings()).setFinishedDone(item)
     return answer
   }
@@ -685,7 +687,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
   }
 
   /** The reaction pop-up for a note; a reaction given is added to it. */
-  async reactTo(file: TFile, date: string, inbox = false): Promise<ReactionAnswer> {
+  async reactTo(file: TFile, date: string, inbox = false, game?: { played: string, askRating: boolean }): Promise<ReactionAnswer> {
     const sync = new PlexSync(this.app, this.settings, () => this.saveSettings())
     // A TV show's reaction names the episodes watched that day (from Plex) instead of a rating.
     let episodes: string | undefined
@@ -715,6 +717,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
         // Type tags (movie, tv_show, song…) say what it is, not how it felt: not shown.
         has: { feelings: list(fm[names.feelings]), themes: list(fm[names.themes]), tags: list(fm.tags).map(t => t.replace(/^#/, '')).filter(t => !typeTags.has(t.toLowerCase())) },
         episodes,
+        ...game,
       }, answer => {
         // Answered once the reaction is in the note, so whatever shows it can redraw with it.
         if (typeof answer === 'object') {
