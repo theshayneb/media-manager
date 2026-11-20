@@ -1582,3 +1582,10 @@
   text-align: left;
   white-space: normal;
 }
+
+/* A finished game's overall Notes in the reaction pop-up. */
+.pmn-reaction-notes {
+  width: 100%;
+  min-height: 4em;
+  resize: vertical;
+}

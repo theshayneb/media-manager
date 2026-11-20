@@ -29,6 +29,8 @@ export interface Reaction {
   episodes?: string
   /** For a day you played a game: how long ("2.5 h played"), named in place of the rating. */
   played?: string
+  /** The note's overall Notes, as edited in the pop-up (asked when you finish a game): replaces them. */
+  notes?: string
 }
 
 /** Where a reaction goes in a note's properties. */
@@ -38,6 +40,8 @@ export interface ReactionProperties {
   themes: string
   /** The note's rating property, which takes the reaction's rating. */
   rating: string
+  /** The note's overall Notes property (its own name's case kept), for `Reaction.notes`. */
+  notes?: string
 }
 
 /**
@@ -72,6 +76,11 @@ export function addReaction(fm: Record<string, unknown>, r: Reaction, names: Rea
   if (r.themes.length) fm[names.themes] = withAll(fm[names.themes], r.themes)
   if (r.tags.length) fm.tags = withAll(fm.tags, r.tags.map(t => t.replace(/^#/, '')))
   if (r.rating) fm[names.rating] = r.rating
+  if (r.notes !== undefined) {
+    // The Notes property as the note spells it, else "Notes".
+    const name = Object.keys(fm).find(k => k.toLowerCase() === (names.notes ?? 'Notes').toLowerCase()) ?? names.notes ?? 'Notes'
+    fm[name] = r.notes
+  }
 }
 
 /** A list of words from the settings' box: one per line or comma, trimmed, each once. */

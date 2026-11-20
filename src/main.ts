@@ -645,7 +645,8 @@ export default class PlexMediaNotesPlugin extends Plugin {
     const file = this.app.vault.getAbstractFileByPath(item.path)
     if (!(file instanceof TFile)) return 'never'
     // A day you played a game: how long, and no rating unless you finished it that day.
-    const game = item.kind === 'game' && item.played !== undefined ? { played: item.played, askRating: Boolean(item.status) } : undefined
+    // Finished (in a completed or abandoned Steam collection): a rating and the game's overall Notes too.
+    const game = item.kind === 'game' && (item.played !== undefined || item.status) ? { played: item.played, askRating: Boolean(item.status), askNotes: Boolean(item.status) } : undefined
     const answer = await this.reactTo(file, moment.unix(item.viewedAt).format('YYYY-MM-DD'), true, game)
     if (answer !== 'later') await new PlexSync(this.app, this.settings, () => this.saveSettings()).setFinishedDone(item)
     return answer
@@ -687,7 +688,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
   }
 
   /** The reaction pop-up for a note; a reaction given is added to it. */
-  async reactTo(file: TFile, date: string, inbox = false, game?: { played: string, askRating: boolean }): Promise<ReactionAnswer> {
+  async reactTo(file: TFile, date: string, inbox = false, game?: { played?: string, askRating: boolean, askNotes: boolean }): Promise<ReactionAnswer> {
     const sync = new PlexSync(this.app, this.settings, () => this.saveSettings())
     // A TV show's reaction names the episodes watched that day (from Plex) instead of a rating.
     let episodes: string | undefined
@@ -717,7 +718,8 @@ export default class PlexMediaNotesPlugin extends Plugin {
         // Type tags (movie, tv_show, song…) say what it is, not how it felt: not shown.
         has: { feelings: list(fm[names.feelings]), themes: list(fm[names.themes]), tags: list(fm.tags).map(t => t.replace(/^#/, '')).filter(t => !typeTags.has(t.toLowerCase())) },
         episodes,
-        ...game,
+        ...game ? { played: game.played, askRating: game.askRating } : {},
+        ...game?.askNotes ? { notes: notesText(fm) } : {},
       }, answer => {
         // Answered once the reaction is in the note, so whatever shows it can redraw with it.
         if (typeof answer === 'object') {
@@ -1264,4 +1266,12 @@ class RestoreModal extends Modal {
   onClose(): void {
     this.contentEl.empty()
   }
+}
+
+/** A note's Notes property (any case) as text: a list's items one per line. */
+function notesText(fm: Record<string, unknown>): string {
+  const name = Object.keys(fm).find(k => k.toLowerCase() === 'notes')
+  const value: unknown = name ? fm[name] : undefined
+  if (Array.isArray(value)) return value.map(String).join('\n')
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : ''
 }

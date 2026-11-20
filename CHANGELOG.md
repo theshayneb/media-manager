@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.0.211] - 2026-11-20
+
+- When "Just finished" asks about a game you finished (moved to a completed or abandoned Steam collection), the pop-up now also has a Notes box, for your overall take on the game, apart from the reaction for that session. It shows what the note's Notes already hold, so you can edit or add to it; it's only written when you change it, and the note's own spelling of the property ("Notes", "notes") is kept.
+
 ## [0.0.210] - 2026-11-20
 
 - "Just finished" (the nightly check-in's "How was it?" list) now asks about each day you played a game, like a show's episodes:

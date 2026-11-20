@@ -90,3 +90,16 @@ describe('game days', () => {
     expect(parseReaction(line, ['happy'])).toEqual({ day: '2026-11-19', played: '2.5 h played', feelings: ['happy'], text: 'boss down' })
   })
 })
+
+describe('finishing a game', () => {
+  it('replaces the note\'s overall Notes with what you wrote, under its own name', () => {
+    const fm: Record<string, unknown> = { notes: 'Loved the music.' }
+    addReaction(fm, { date: '2026-11-20', feelings: [], themes: [], tags: [], notes: 'Loved the music.\nThe ending made me cry.' }, { reactions: 'Reactions', feelings: 'Feelings', themes: 'Themes', rating: 'Rating', notes: 'Notes' })
+    expect(fm.notes).toBe('Loved the music.\nThe ending made me cry.')
+    expect(fm.Notes).toBeUndefined()
+    // Left out: Notes aren't touched.
+    const other: Record<string, unknown> = { Notes: 'Mine' }
+    addReaction(other, { date: '2026-11-20', feelings: [], themes: [], tags: [] }, { reactions: 'Reactions', feelings: 'Feelings', themes: 'Themes', rating: 'Rating' })
+    expect(other.Notes).toBe('Mine')
+  })
+})

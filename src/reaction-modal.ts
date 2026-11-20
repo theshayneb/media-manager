@@ -29,6 +29,8 @@ export interface ReactionChoices {
   played?: string
   /** Ask for a rating (not for a day you played a game, unless you finished it that day). */
   askRating?: boolean
+  /** The note's overall Notes, to edit (asked when you finish a game); undefined: not asked. */
+  notes?: string
 }
 
 /** What the pop-up ended with: a reaction, "not now" (asked again later) or "don't ask" about this one. */
@@ -44,6 +46,7 @@ export class ReactionModal extends Modal {
   private pmnText = ''
   private pmnEpisodes: string | undefined
   private pmnPlayed: string | undefined
+  private pmnNotes: string | undefined
   private pmnAnswered = false
   /** The "Add your own" box's theme not yet added with Enter: added when saving. */
   private pmnOwnTheme: HTMLInputElement | null = null
@@ -53,6 +56,7 @@ export class ReactionModal extends Modal {
     this.pmnRating = pmnChoices.askRating !== false && pmnChoices.rating && RATINGS.includes(pmnChoices.rating) ? pmnChoices.rating : undefined
     this.pmnEpisodes = pmnChoices.episodes
     this.pmnPlayed = pmnChoices.played
+    this.pmnNotes = pmnChoices.notes
   }
 
   onOpen(): void {
@@ -116,6 +120,18 @@ export class ReactionModal extends Modal {
           if (evt.key === 'Enter' && !typingLink(text.inputEl)) this.pmnSave()
         })
       })
+
+    // Finished: your lasting take on the whole thing, beside this time's reaction.
+    if (c.notes !== undefined) {
+      new Setting(contentEl)
+        .setName('Notes')
+        .setDesc('Your overall take, kept in the note\'s "Notes". What\'s there already is shown; edit or add to it.')
+        .addTextArea(area => {
+          area.setPlaceholder('Optional').setValue(c.notes ?? '').onChange(value => { this.pmnNotes = value })
+          area.inputEl.addClass('pmn-reaction-notes')
+          area.inputEl.rows = Math.min(10, Math.max(3, (c.notes ?? '').split('\n').length + 1))
+        })
+    }
 
     const actions = new Setting(contentEl)
     if (this.pmnInbox) {
@@ -196,6 +212,8 @@ export class ReactionModal extends Modal {
       text: this.pmnText.trim() || undefined,
       ...this.pmnEpisodes !== undefined ? { episodes: this.pmnEpisodes.trim() } : {},
       ...this.pmnPlayed !== undefined ? { played: this.pmnPlayed.trim() } : {},
+      // Only when changed: an untouched Notes box leaves the note as it is.
+      ...this.pmnNotes !== undefined && this.pmnNotes.trim() !== (this.pmnChoices.notes ?? '').trim() ? { notes: this.pmnNotes.trim() } : {},
     } })
   }
 
