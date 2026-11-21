@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.212] - 2026-11-21
+
+- A game day's reaction writes the time without a space, like the rest of your notes: "2026-11-19 · 2.5h played · cozy, focused · words" (and "40min played"). Lines written by 0.0.210–0.0.211 with a space ("2.5 h played") are still read.
+- As with a show's episodes, a rating you give when finishing a game goes in the note's rating, not in that line.
+
 ## [0.0.211] - 2026-11-20
 
 - When "Just finished" asks about a game you finished (moved to a completed or abandoned Steam collection), the pop-up now also has a Notes box, for your overall take on the game, apart from the reaction for that session. It shows what the note's Notes already hold, so you can edit or add to it; it's only written when you change it, and the note's own spelling of the property ("Notes", "notes") is kept.

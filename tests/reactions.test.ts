@@ -64,9 +64,9 @@ describe('game days', () => {
   it('says how long a game was played', () => {
     expect(playedText(0)).toBe('')
     expect(playedText(undefined)).toBe('')
-    expect(playedText(40)).toBe('40 min played')
-    expect(playedText(150)).toBe('2.5 h played')
-    expect(playedText(61)).toBe('1 h played')
+    expect(playedText(40)).toBe('40min played')
+    expect(playedText(150)).toBe('2.5h played')
+    expect(playedText(61)).toBe('1h played')
   })
 
   it('adds up a day\'s playtime and forgets old days', () => {
@@ -85,9 +85,12 @@ describe('game days', () => {
   })
 
   it('names the time played in the reaction line, and reads it back', () => {
-    const line = reactionLine({ date: '2026-11-19', feelings: ['happy'], themes: [], tags: [], played: '2.5 h played', text: 'boss down' })
-    expect(line).toBe('2026-11-19 · 2.5 h played · happy · boss down')
-    expect(parseReaction(line, ['happy'])).toEqual({ day: '2026-11-19', played: '2.5 h played', feelings: ['happy'], text: 'boss down' })
+    const line = reactionLine({ date: '2026-11-19', rating: '🩷', feelings: ['happy'], themes: [], tags: [], played: '2.5h played', text: 'boss down' })
+    // Like a show's episodes: the time in place of the rating, which goes in the note's rating.
+    expect(line).toBe('2026-11-19 · 2.5h played · happy · boss down')
+    expect(parseReaction(line, ['happy'])).toEqual({ day: '2026-11-19', played: '2.5h played', feelings: ['happy'], text: 'boss down' })
+    // Lines from 0.0.210, with a space, still read.
+    expect(parseReaction('2026-11-19 · 2.5 h played · happy', ['happy'])?.played).toBe('2.5 h played')
   })
 })
 

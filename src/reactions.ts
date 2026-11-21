@@ -27,7 +27,7 @@ export interface Reaction {
    * the episodes': it still goes in the note's rating property.
    */
   episodes?: string
-  /** For a day you played a game: how long ("2.5 h played"), named in place of the rating. */
+  /** For a day you played a game: how long ("2.5h played"), named in place of the rating. */
   played?: string
   /** The note's overall Notes, as edited in the pop-up (asked when you finish a game): replaces them. */
   notes?: string
@@ -111,11 +111,11 @@ export interface Finished {
   played?: string
 }
 
-/** How long a game was played, for its reaction: "40 min played", "2.5 h played"; '' for nothing. */
+/** How long a game was played, for its reaction: "40min played", "2.5h played" (no space, the owner's way); '' for nothing. */
 export function playedText(minutes: number | undefined): string {
   if (!minutes || minutes <= 0) return ''
-  if (minutes < 60) return `${Math.round(minutes)} min played`
-  return `${Math.round(minutes / 30) / 2} h played`
+  if (minutes < 60) return `${Math.round(minutes)}min played`
+  return `${Math.round(minutes / 30) / 2}h played`
 }
 
 /**

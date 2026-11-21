@@ -25,7 +25,7 @@ export interface ReactionChoices {
    * editable; the line names them and leaves out the rating, which is the show's.
    */
   episodes?: string
-  /** For a day you played a game: how long ("2.5 h played", maybe empty), editable, named in the line. */
+  /** For a day you played a game: how long ("2.5h played", maybe empty), editable, named in the line. */
   played?: string
   /** Ask for a rating (not for a day you played a game, unless you finished it that day). */
   askRating?: boolean
@@ -80,7 +80,7 @@ export class ReactionModal extends Modal {
     if (this.pmnPlayed !== undefined) {
       new Setting(contentEl)
         .setName('Time played')
-        .setDesc(this.pmnPlayed ? 'From Steam: the playtime added that day.' : 'Steam didn\'t say how long: type it if you like, such as "2 h played".')
+        .setDesc(this.pmnPlayed ? 'From Steam: the playtime added that day.' : 'Steam didn\'t say how long: type it if you like, such as "2h played".')
         .addText(text => {
           text.setPlaceholder('Optional').setValue(this.pmnPlayed ?? '').onChange(value => { this.pmnPlayed = value })
           text.inputEl.addClass('pmn-reaction-text')

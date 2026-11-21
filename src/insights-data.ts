@@ -63,7 +63,7 @@ export function parseReaction(line: string, feelings: string[]): Pick<ReactionEv
   // A TV show's reaction names the episodes watched in place of a rating.
   else if (parts[0] && /^S\d+E\d+\b/.test(parts[0])) out.episodes = parts.shift()
   // A game day's names how long it was played.
-  else if (parts[0] && /^[\d.]+ (h|min) played$/.test(parts[0])) out.played = parts.shift()
+  else if (parts[0] && /^[\d.]+ ?(h|min) played$/.test(parts[0])) out.played = parts.shift()
   const known = new Set(feelings.map(f => f.toLowerCase()))
   if (parts[0]) {
     const words = parts[0].split(',').map(w => w.trim()).filter(Boolean)

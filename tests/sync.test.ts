@@ -2136,7 +2136,7 @@ describe('PlexSync', () => {
     settings.gameDays = { [`steam-620|${yesterday}`]: 150, [`steam-1145360|${yesterday}`]: 0, 'steam-620|2020-01-01': 60 }
     const sync = new PlexSync(app as never, settings, () => Promise.resolve())
     const items = await sync.finishedItems()
-    expect(items.map(i => [i.title, i.kind, i.played])).toEqual([['Hades', 'game', ''], ['Portal 2', 'game', '2.5 h played']])
+    expect(items.map(i => [i.title, i.kind, i.played])).toEqual([['Hades', 'game', ''], ['Portal 2', 'game', '2.5h played']])
     // Answered (or set aside): that day isn't asked about again.
     await sync.setFinishedDone(items[1])
     expect((await sync.finishedItems()).map(i => i.title)).toEqual(['Hades'])
