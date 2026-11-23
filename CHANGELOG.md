@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.213] - 2026-11-23
+
+- "Check this note" on a book no longer connects to Plex (or Steam) at all: a book only needs Open Library and Google Books, so it works on your phone or tablet away from home. Before, it hung on "Connecting to Plex…".
+- When Plex is needed and doesn't answer within 20 seconds (away from home, or the server is off), a sync or check now stops and says so, instead of waiting for ever.
+
 ## [0.0.212] - 2026-11-21
 
 - A game day's reaction writes the time without a space, like the rest of your notes: "2026-11-19 · 2.5h played · cozy, focused · words" (and "40min played"). Lines written by 0.0.210–0.0.211 with a space ("2.5 h played") are still read.

@@ -602,15 +602,19 @@ export class PlexSync {
    * reads every active library and indexes the notes already in their folders.
    */
   private async prepare(progress: ProgressFn, refresh: boolean, readTags = true): Promise<{ active: [string, ActiveLibrary][], indexes: Record<Family, ExistingNotes>, entries: Entry[] }> {
-    const usePlex = plexReady(this.settings)
-    const useSteam = steamReady(this.settings)
-    if (!usePlex && !useSteam) throw new Error('Set up Plex or Steam in the plugin settings first')
+    // Limited to some libraries (say, "Check this note" on a book): Plex and Steam are only asked when
+    // one of them needs it, so a book can be checked on a phone away from the Plex server.
+    const wanted = (key: string) => !this.onlyLibraries || this.onlyLibraries.has(key)
+    const plexWanted = !this.onlyLibraries || [...this.onlyLibraries].some(key => key !== STEAM_LIBRARY && key !== BOOKS_LIBRARY)
+    const usePlex = plexReady(this.settings) && plexWanted
+    const useSteam = steamReady(this.settings) && wanted(STEAM_LIBRARY)
+    if (!usePlex && !useSteam && !this.onlyLibraries) throw new Error('Set up Plex or Steam in the plugin settings first')
 
     if (usePlex) {
       const { serverUrl, token } = this.settings
       this.plex = new PlexClient(serverUrl, token)
       progress('Connecting to Plex…')
-      this.machineId = await this.plex.machineIdentifier()
+      this.machineId = await withTimeout(this.plex.machineIdentifier(), PLEX_CONNECT_WAIT, `Plex at ${serverUrl} didn't answer within ${PLEX_CONNECT_WAIT / 1000} seconds (away from home, or the server is off?)`)
       if (refresh) mergeLibraries(this.settings, await this.plex.libraries())
     }
     if (useSteam) {
@@ -3058,3 +3062,14 @@ function mtimeOf(file: TFile): number {
 
 /** How long answered Related offers are remembered (they're only ever offered for the last week). */
 const RELATED_ANSWERED_KEPT = 60 * 86400 * 1000
+
+/** How long to wait for Plex to answer the first request before saying it can't be reached (ms). */
+const PLEX_CONNECT_WAIT = 20000
+
+/** A promise that fails with `message` if it hasn't settled within `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(value => { clearTimeout(timer); resolve(value) }, (err: unknown) => { clearTimeout(timer); reject(err instanceof Error ? err : new Error(String(err))) })
+  })
+}

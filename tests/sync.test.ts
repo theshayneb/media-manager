@@ -1026,6 +1026,9 @@ describe('PlexSync', () => {
     expect(requested.filter(u => u.includes('Hobbit'))).toEqual([])
     // Only the book's own library is read: no Plex listing.
     expect(requested.filter(u => u.includes('/library/sections'))).toEqual([])
+    // Nor any Plex at all, so a phone away from the server can check a book (it hung on "Connecting to Plex…").
+    expect(requested.filter(u => u.includes('/identity'))).toEqual([])
+    expect(said).not.toContain('Connecting to Plex…')
   })
 
   it('renames book notes in a sync from what each note says, looking nothing up', async () => {
