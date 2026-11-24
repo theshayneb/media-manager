@@ -1589,3 +1589,8 @@
   min-height: 4em;
   resize: vertical;
 }
+
+/* On a phone, room under the reaction pop-up's last box, so it can scroll up above the keyboard. */
+.is-mobile .pmn-reaction .modal-content {
+  padding-bottom: 50vh;
+}

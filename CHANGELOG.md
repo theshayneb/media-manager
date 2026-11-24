@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.0.216] - 2026-11-24
+
+- On a phone, the reaction pop-up ("How was …?") no longer hides its boxes behind the keyboard: the box you tap ("In a few words", "Time played", Notes, your own theme) scrolls up above the keyboard, and the pop-up has room at the bottom to scroll into.
+
 ## [0.0.215] - 2026-11-24
 
 - "Check in now" away from home no longer gets stuck after saying Plex didn't answer:

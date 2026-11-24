@@ -63,6 +63,7 @@ export class ReactionModal extends Modal {
     const { contentEl } = this
     const c = this.pmnChoices
     this.modalEl.addClass('pmn-reaction')
+    this.pmnKeepAboveKeyboard()
     this.titleEl.setText(`How was ${c.title}?`)
     if (c.why) contentEl.createEl('p', { cls: 'pmn-review-wanted', text: `You wanted it because: ${c.why}` })
     contentEl.createEl('p', { cls: 'setting-item-description', text: `Everything here is optional. It's added to the note as a reaction for ${c.date}; nothing already there is removed.` })
@@ -141,7 +142,30 @@ export class ReactionModal extends Modal {
     actions.addButton(b => b.setButtonText('Save').setCta().onClick(() => this.pmnSave()))
   }
 
+  /**
+   * On a phone the keyboard covers the bottom of the pop-up: a box that gets the focus is scrolled
+   * into view above it, again whenever the keyboard changes the visible height.
+   */
+  private pmnKeepAboveKeyboard(): void {
+    const reveal = () => {
+      const focused = activeDocument.activeElement
+      if (focused instanceof HTMLElement && this.contentEl.contains(focused) && focused.matches('input, textarea')) {
+        focused.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }
+    }
+    // After the keyboard has opened (it takes a moment).
+    this.contentEl.addEventListener('focusin', () => window.setTimeout(reveal, 350))
+    const viewport = window.visualViewport
+    if (viewport) {
+      viewport.addEventListener('resize', reveal)
+      this.pmnStopWatching = () => viewport.removeEventListener('resize', reveal)
+    }
+  }
+
+  private pmnStopWatching: (() => void) | null = null
+
   onClose(): void {
+    this.pmnStopWatching?.()
     this.contentEl.empty()
     if (!this.pmnAnswered) {
       this.pmnAnswered = true
