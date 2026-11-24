@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.215] - 2026-11-24
+
+- "Check in now" away from home no longer gets stuck after saying Plex didn't answer:
+  - A settings save that never finishes (it can happen on a phone) is given up on after 30 seconds, so it can't hold up the saves after it.
+  - Steam is waited for at most 20 seconds when looking for games you finished, and the whole "what you finished" look-up at most 90 seconds. If one gives up, the check-in says so and carries on.
+  - The corner notice now names each step ("going on without Plex…", "saving…", "looking for what you finished…"), so if anything ever sticks, the notice shows where.
+
 ## [0.0.214] - 2026-11-24
 
 - "Check in now" goes on when Plex can't be reached (a phone away from home): play counts and watched episodes are left for later, with a notice saying so, and the rest is still asked: links waiting for your daily notes' Related (books you read, games) and the game days to react to. Before, the whole check-in stopped.

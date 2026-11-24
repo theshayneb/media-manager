@@ -1309,7 +1309,8 @@ export class PlexSync {
     // Games moved into a Steam collection that finishes them (desktop only).
     const finished: Finished[] = []
     try {
-      finished.push(...await this.finishedGames())
+      // Steam can be slow to answer on a phone: not waited for more than 20 seconds.
+      finished.push(...await withTimeout(this.finishedGames(), PLEX_CONNECT_WAIT, 'Steam didn\'t answer'))
     } catch (err) {
       console.warn('Media Manager: reading Steam collections for finished games failed', err)
     }
@@ -3074,10 +3075,10 @@ function mtimeOf(file: TFile): number {
 const RELATED_ANSWERED_KEPT = 60 * 86400 * 1000
 
 /** How long to wait for Plex to answer the first request before saying it can't be reached (ms). */
-const PLEX_CONNECT_WAIT = 20000
+export const PLEX_CONNECT_WAIT = 20000
 
 /** A promise that fails with `message` if it hasn't settled within `ms`. */
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms)
     promise.then(value => { clearTimeout(timer); resolve(value) }, (err: unknown) => { clearTimeout(timer); reject(err instanceof Error ? err : new Error(String(err))) })

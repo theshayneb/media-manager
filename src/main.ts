@@ -11,7 +11,7 @@ import { PlexClient } from './plex'
 import { defaultSettings, loadSettings, mergeAnswers, type KeptAnswers, type PlexNotesSettings } from './config'
 import { errorMessage, PlexNotesSettingTab } from './settings'
 import { displayName, ratingKeyFromLink, type PlexItem } from './notes'
-import { PlexSync } from './sync'
+import { PlexSync, withTimeout } from './sync'
 import { DEFAULT_TAGS } from './properties'
 import { PLAYLIST_VIEW, playlistView } from './playlist-view'
 import { COLLECTION_VIEW, collectionView } from './collection-view'
@@ -62,6 +62,8 @@ class ProgressNotice {
 /** Background updates wait this long after Obsidian starts, and for the vault to be this long without changes (ms). */
 const SETTLE_AFTER_START = 3 * 60 * 1000
 const SETTLE_QUIET = 60 * 1000
+/** A settings save or merge that hasn't finished in this long is given up on, so later ones aren't held up (ms). */
+const SETTINGS_TASK_WAIT = 30 * 1000
 
 export default class PlexMediaNotesPlugin extends Plugin {
   settings: PlexNotesSettings = defaultSettings()
@@ -489,6 +491,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
         } catch (err) {
           if (!byHand) throw err
           plexOut = true
+          progress('going on without Plex…')
           console.warn('Media Manager: check-in without Plex', err)
           new Notice(`Daily check-in: ${errorMessage(err)}. Play counts and watched episodes are left for later; the rest goes on.`, 10000)
         }
@@ -517,6 +520,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
       }
       if (!plexOut) this.settings.lastPlayCountUpdate = now
       if (how === 'check-in' && !byHand) this.settings.lastCheckIn = dayOf(new Date(now))
+      progress('saving…')
       await this.saveSettings()
       ran = true
     } catch (err) {
@@ -597,13 +601,17 @@ export default class PlexMediaNotesPlugin extends Plugin {
   private async askFinished(withoutPlex = false): Promise<boolean> {
     if (!this.settings.reactionInbox) return false
     let items: Finished[]
+    // Says what it's doing, so a step that takes long (or sticks) shows which it is.
+    const looking = new ProgressNotice('Daily check-in: looking for what you finished…')
     try {
-      items = await this.newSync().finishedItems(withoutPlex)
+      items = await withTimeout(this.newSync().finishedItems(withoutPlex), 90000, 'looking for what you finished took too long')
     } catch (err) {
       console.warn('Media Manager: looking for what you finished failed', err)
+      new Notice(`Daily check-in: ${errorMessage(err)}`, 8000)
       return false
     } finally {
       this.syncs.clear()
+      looking.hide()
     }
     if (!items.length) return false
     checkInStep(2, `${items.length} to react to`)
@@ -965,7 +973,9 @@ export default class PlexMediaNotesPlugin extends Plugin {
   /** Saves and merges run one after another (some saves aren't waited for), so none reads a half-written state. */
   private settingsQueue: Promise<void> = Promise.resolve()
   private oneAtATime(task: () => Promise<void>): Promise<void> {
-    const next = this.settingsQueue.then(task, task)
+    // One that never ends (a file call stuck on a phone) mustn't hold up every later save.
+    const timed = () => withTimeout(task(), SETTINGS_TASK_WAIT, 'saving the settings took too long')
+    const next = this.settingsQueue.then(timed, timed)
     this.settingsQueue = next.catch(err => console.error('Media Manager: saving settings failed', err))
     return next
   }
