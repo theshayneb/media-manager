@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.214] - 2026-11-24
+
+- "Check in now" goes on when Plex can't be reached (a phone away from home): play counts and watched episodes are left for later, with a notice saying so, and the rest is still asked: links waiting for your daily notes' Related (books you read, games) and the game days to react to. Before, the whole check-in stopped.
+- "Just finished" lists game days and finished games even when Plex isn't set up or doesn't answer within 20 seconds.
+
 ## [0.0.213] - 2026-11-23
 
 - "Check this note" on a book no longer connects to Plex (or Steam) at all: a book only needs Open Library and Google Books, so it works on your phone or tablet away from home. Before, it hung on "Connecting to Plex…".

@@ -473,22 +473,34 @@ export default class PlexMediaNotesPlugin extends Plugin {
     if (how === 'check-in') startCheckIn()
     const notice = how === 'check-in' ? new ProgressNotice('Daily check-in: looking at Plex and Steam…') : null
     const progress = (message: string) => notice?.set(`Daily check-in: ${message}`)
+    // A check-in started by hand where Plex can't be reached (a phone away from home): the Plex
+    // parts are skipped and the rest (Related links, game days) is still asked.
+    let plexOut = false
     try {
       // With asking off nothing is asked, so it's done at every update.
       if (updating && (how !== 'quiet' || !askBeforeChanges) && plexReady(this.settings)) {
         const sync = this.newSync()
         // The check-in also reads songs' music files (lyrics and tags), so their changes come up then too.
         sync.readMusicFiles = how === 'check-in'
-        const result = await sync.run(progress, 'playCounts')
-        if (result.playCounts.length) console.log('Media Manager: kept up to date (play counts, ratings, status)', result.playCounts)
-        if (result.failed.length) console.error('Media Manager: failed items', result.failed)
+        try {
+          const result = await sync.run(progress, 'playCounts')
+          if (result.playCounts.length) console.log('Media Manager: kept up to date (play counts, ratings, status)', result.playCounts)
+          if (result.failed.length) console.error('Media Manager: failed items', result.failed)
+        } catch (err) {
+          if (!byHand) throw err
+          plexOut = true
+          console.warn('Media Manager: check-in without Plex', err)
+          new Notice(`Daily check-in: ${errorMessage(err)}. Play counts and watched episodes are left for later; the rest goes on.`, 10000)
+        }
       }
-      progress('daily notes…')
-      const days = await this.dailyEpisodes(() => {})
-      if (days.length) console.log('Media Manager: episodes added to daily notes', days)
+      if (!plexOut) {
+        progress('daily notes…')
+        const days = await this.dailyEpisodes(() => {})
+        if (days.length) console.log('Media Manager: episodes added to daily notes', days)
+      }
       // Automatic collections ("Comfort: comfort"), sent again once a week, unasked: they hold
       // what your tags say. Tried at most once a week, even when it fails.
-      if (parseCollectionRules(this.settings.collectionRules).length && now - this.settings.lastAutoCollections >= 7 * 86400 * 1000 && plexReady(this.settings)) {
+      if (!plexOut && parseCollectionRules(this.settings.collectionRules).length && now - this.settings.lastAutoCollections >= 7 * 86400 * 1000 && plexReady(this.settings)) {
         this.settings.lastAutoCollections = now
         try {
           const { plans } = await planCollections(this.app, this.settings, 'auto')
@@ -499,11 +511,11 @@ export default class PlexMediaNotesPlugin extends Plugin {
         }
       }
       // The Revisit playlist, made again once a week (it asks nothing: it's the plugin's own playlist).
-      if (this.settings.revisitWeekly && now - this.settings.lastRevisit >= 7 * 86400 * 1000 && plexReady(this.settings)
+      if (!plexOut && this.settings.revisitWeekly && now - this.settings.lastRevisit >= 7 * 86400 * 1000 && plexReady(this.settings)
         && Object.values(this.settings.libraries).some(lib => lib.target === 'music')) {
         console.log(`Media Manager: ${await this.makeRevisit()}`)
       }
-      this.settings.lastPlayCountUpdate = now
+      if (!plexOut) this.settings.lastPlayCountUpdate = now
       if (how === 'check-in' && !byHand) this.settings.lastCheckIn = dayOf(new Date(now))
       await this.saveSettings()
       ran = true
@@ -533,7 +545,7 @@ export default class PlexMediaNotesPlugin extends Plugin {
       checkInStep(1, `${waiting} link${waiting === 1 ? '' : 's'} waiting`)
       const related = await this.askRelated()
       checkInStep(2)
-      const finished = await this.askFinished()
+      const finished = await this.askFinished(plexOut)
       new Notice(related || finished ? 'Daily check-in done' : 'Daily check-in done: nothing else is waiting for you', 5000)
     } finally {
       this.checkingIn = false
@@ -582,11 +594,11 @@ export default class PlexMediaNotesPlugin extends Plugin {
   }
 
   /** At the check-in: "Just finished", when something you finished is waiting; resolves once it's closed (false when nothing was). */
-  private async askFinished(): Promise<boolean> {
-    if (!this.settings.reactionInbox || !plexReady(this.settings)) return false
+  private async askFinished(withoutPlex = false): Promise<boolean> {
+    if (!this.settings.reactionInbox) return false
     let items: Finished[]
     try {
-      items = await this.newSync().finishedItems()
+      items = await this.newSync().finishedItems(withoutPlex)
     } catch (err) {
       console.warn('Media Manager: looking for what you finished failed', err)
       return false

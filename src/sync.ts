@@ -1254,11 +1254,21 @@ export class PlexSync {
     })
   }
 
-  async finishedItems(): Promise<Finished[]> {
-    if (!plexReady(this.settings)) return []
-    const plex = this.plex ?? new PlexClient(this.settings.serverUrl, this.settings.token)
+  async finishedItems(withoutPlex = false): Promise<Finished[]> {
     const now = Math.floor(Date.now() / 1000)
-    const history = this.counted(await plex.history(now - 14 * 86400))
+    // Without Plex (not set up, or out of reach, say on a phone away from home): only games, from
+    // Steam's collections and the game days already remembered.
+    let history: HistoryEntry[] = []
+    if (plexReady(this.settings) && !withoutPlex) {
+      const plex = this.plex ?? new PlexClient(this.settings.serverUrl, this.settings.token)
+      try {
+        history = this.counted(await withTimeout(plex.history(now - 14 * 86400), PLEX_CONNECT_WAIT, 'Plex didn\'t answer'))
+      } catch (err) {
+        console.warn('Media Manager: reading Plex\'s history for Just finished failed', err)
+        withoutPlex = true
+      }
+    } else withoutPlex = true
+    const plex = withoutPlex ? null : this.plex ?? new PlexClient(this.settings.serverUrl, this.settings.token)
     const { notes, ignoredShow, ignoredMovie } = this.watchNotes()
     const done = (key: string, at: number, note: TFile) => this.finishedDone(key, at, note)
     const out: Finished[] = []
@@ -1292,7 +1302,7 @@ export class PlexSync {
       const note = notes.get(key)
       if (!note || done(key, at, note)) continue
       // Finished: every episode Plex has is watched.
-      const show = await plex.item(key).catch(() => null)
+      const show = plex ? await plex.item(key).catch(() => null) : null
       if (!show?.leafCount || (show.viewedLeafCount ?? 0) < show.leafCount) continue
       out.push({ key, title: note.basename, kind: 'show', viewedAt: at, path: note.path })
     }
